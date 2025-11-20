@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   AlertTriangle, 
   CheckCircle, 
@@ -12,8 +12,14 @@ import {
   Settings,
   Send,
   Loader,
-  Check
+  Check,
+  Save
 } from 'lucide-react';
+
+// --- ⚠️ PASTE YOUR MAKE.COM WEBHOOK HERE TO SHARE WITH OTHERS ⚠️ ---
+// If this is empty, users must enter it manually.
+// If you paste the URL here, the "Config" box will be hidden and it will just work!
+const HARDCODED_WEBHOOK_URL = "https://hook.us2.make.com/mnsu9apt7zhxfjibn3fm6fyy1qrlotlh"; 
 
 // --- DATA CONSTANTS ---
 
@@ -96,8 +102,23 @@ export default function App() {
 
   const [viewMode, setViewMode] = useState('quote'); 
   
-  // Webhook State
-  const [webhookUrl, setWebhookUrl] = useState('');
+  // Webhook State - Logic: Hardcoded > LocalStorage > Empty
+  const [webhookUrl, setWebhookUrl] = useState(() => {
+    if (HARDCODED_WEBHOOK_URL) return HARDCODED_WEBHOOK_URL;
+    
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('paramount_webhook_url') || '';
+    }
+    return '';
+  });
+
+  // Effect to save to LocalStorage (only if not hardcoded)
+  useEffect(() => {
+    if (!HARDCODED_WEBHOOK_URL && typeof window !== 'undefined') {
+      localStorage.setItem('paramount_webhook_url', webhookUrl);
+    }
+  }, [webhookUrl]);
+
   const [submitStatus, setSubmitStatus] = useState('idle'); // idle, sending, success, error
 
   // --- LOGIC ENGINE ---
@@ -225,7 +246,9 @@ export default function App() {
 
   // --- SUBMISSION HANDLER ---
   const handleSubmit = async () => {
-    if (!webhookUrl) {
+    const targetUrl = HARDCODED_WEBHOOK_URL || webhookUrl;
+
+    if (!targetUrl) {
       alert("Please enter a Make.com Webhook URL in the settings below.");
       return;
     }
@@ -252,7 +275,7 @@ export default function App() {
     };
 
     try {
-      const response = await fetch(webhookUrl, {
+      const response = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -432,21 +455,26 @@ export default function App() {
             </div>
           </div>
           
-          {/* ADMIN / CONFIG */}
-          <div className="bg-slate-100 rounded-xl shadow-inner border border-slate-200 p-6">
-            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">System Configuration</h2>
-            <div className="space-y-2">
-              <label className="block text-sm text-slate-600">Make.com Webhook URL</label>
-              <input 
-                type="text" 
-                placeholder="https://hook.us1.make.com/..."
-                value={webhookUrl}
-                onChange={(e) => setWebhookUrl(e.target.value)}
-                className="w-full text-xs rounded border-slate-300 p-2 font-mono text-slate-600 bg-white"
-              />
-              <p className="text-[10px] text-slate-400">Paste your webhook here to enable the Submit button.</p>
+          {/* ADMIN / CONFIG (Only shown if no hardcoded webhook) */}
+          {!HARDCODED_WEBHOOK_URL && (
+            <div className="bg-slate-100 rounded-xl shadow-inner border border-slate-200 p-6">
+              <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">System Configuration</h2>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="block text-sm text-slate-600">Make.com Webhook URL</label>
+                  {webhookUrl && <span className="text-[10px] text-green-600 font-medium bg-green-50 px-2 py-0.5 rounded">Saved</span>}
+                </div>
+                <input 
+                  type="text" 
+                  placeholder="https://hook.us1.make.com/..."
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                  className="w-full text-xs rounded border-slate-300 p-2 font-mono text-slate-600 bg-white"
+                />
+                <p className="text-[10px] text-slate-400">Paste your webhook here to enable the Submit button.</p>
+              </div>
             </div>
-          </div>
+          )}
 
         </div>
 
@@ -549,9 +577,9 @@ export default function App() {
                 <div className="mt-8 pt-6 border-t border-slate-100">
                   <button
                     onClick={handleSubmit}
-                    disabled={!webhookUrl || submitStatus === 'sending' || submitStatus === 'success'}
+                    disabled={(!HARDCODED_WEBHOOK_URL && !webhookUrl) || submitStatus === 'sending' || submitStatus === 'success'}
                     className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all
-                      ${!webhookUrl ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 
+                      ${(!HARDCODED_WEBHOOK_URL && !webhookUrl) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 
                         submitStatus === 'success' ? 'bg-green-600 text-white' :
                         'bg-slate-900 text-white hover:bg-slate-800 shadow-lg hover:shadow-xl active:scale-[0.98]'
                       }`}
@@ -573,7 +601,7 @@ export default function App() {
                     )}
                     {submitStatus === 'error' && "Error Sending - Check Webhook"}
                   </button>
-                  {!webhookUrl && (
+                  {(!HARDCODED_WEBHOOK_URL && !webhookUrl) && (
                     <p className="text-center text-xs text-red-400 mt-2">
                       * Enter Webhook URL below to enable
                     </p>
