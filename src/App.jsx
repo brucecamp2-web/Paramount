@@ -19,7 +19,10 @@ import {
   Layout,
   ExternalLink,
   Clock,
-  Database
+  Database,
+  X,
+  FileText,
+  GripVertical
 } from 'lucide-react';
 
 // --- ⚠️ PASTE YOUR MAKE.COM WEBHOOK HERE TO SHARE WITH OTHERS ⚠️ ---
@@ -118,10 +121,12 @@ export default function App() {
       return {
         webhookUrl: HARDCODED_WEBHOOK_URL || localStorage.getItem('paramount_webhook_url') || '',
         airtableBaseId: localStorage.getItem('paramount_at_base') || '',
-        airtablePat: localStorage.getItem('paramount_at_pat') || ''
+        airtablePat: localStorage.getItem('paramount_at_pat') || '',
+        airtableTableName: localStorage.getItem('paramount_at_table') || 'Jobs',
+        airtableLineItemsName: localStorage.getItem('paramount_at_lines') || 'Line Items'
       };
     }
-    return { webhookUrl: '', airtableBaseId: '', airtablePat: '' };
+    return { webhookUrl: '', airtableBaseId: '', airtablePat: '', airtableTableName: 'Jobs', airtableLineItemsName: 'Line Items' };
   });
 
   // Persist Config
@@ -130,6 +135,8 @@ export default function App() {
       if (!HARDCODED_WEBHOOK_URL) localStorage.setItem('paramount_webhook_url', config.webhookUrl);
       localStorage.setItem('paramount_at_base', config.airtableBaseId);
       localStorage.setItem('paramount_at_pat', config.airtablePat);
+      localStorage.setItem('paramount_at_table', config.airtableTableName);
+      localStorage.setItem('paramount_at_lines', config.airtableLineItemsName);
     }
   }, [config]);
 
@@ -137,6 +144,71 @@ export default function App() {
   const [jobs, setJobs] = useState([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('idle');
+  const [fetchError, setFetchError] = useState(null); 
+  const [draggingJobId, setDraggingJobId] = useState(null); // For Drag & Drop
+
+  // Modal State
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [jobLineItems, setJobLineItems] = useState([]);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
+  // --- DRAG AND DROP LOGIC ---
+  const handleDragStart = (e, jobId) => {
+    setDraggingJobId(jobId);
+    e.dataTransfer.effectAllowed = "move";
+    // Optional: Set a custom drag image or style here
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = async (e, newStatus) => {
+    e.preventDefault();
+    if (!draggingJobId) return;
+
+    const jobToMove = jobs.find(j => j.id === draggingJobId);
+    if (!jobToMove || jobToMove.fields.Status === newStatus) {
+      setDraggingJobId(null);
+      return;
+    }
+
+    // 1. Optimistic Update (Update UI immediately)
+    const updatedJobs = jobs.map(j => 
+      j.id === draggingJobId ? { ...j, fields: { ...j.fields, Status: newStatus } } : j
+    );
+    setJobs(updatedJobs);
+    setDraggingJobId(null);
+
+    // 2. API Update (Update Airtable in background)
+    if (config.airtableBaseId && config.airtablePat) {
+      try {
+        const tableName = config.airtableTableName || 'Jobs';
+        const encodedTable = encodeURIComponent(tableName);
+        
+        const response = await fetch(`https://api.airtable.com/v0/${config.airtableBaseId}/${encodedTable}/${jobToMove.id}`, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${config.airtablePat}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            fields: { Status: newStatus }
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to update status in Airtable");
+        }
+        // Success - no action needed
+      } catch (error) {
+        console.error("Drag update failed:", error);
+        alert("Failed to save status change to Airtable. Reverting...");
+        fetchJobs(); // Revert on error
+      }
+    }
+  };
 
   // --- QUOTE CALCULATOR ENGINE ---
   const calculationResult = useMemo(() => {
@@ -240,29 +312,77 @@ export default function App() {
 
   // --- AIRTABLE FETCH LOGIC ---
   const fetchJobs = async () => {
+    setFetchError(null);
+    
     if (!config.airtableBaseId || !config.airtablePat) {
-      alert("Please enter your Airtable Base ID and Personal Access Token in the configuration panel.");
+      setFetchError("Missing Configuration: Enter Base ID and Token above.");
       return;
     }
 
+    const tableName = config.airtableTableName || 'Jobs';
+
     setLoadingJobs(true);
     try {
-      const response = await fetch(`https://api.airtable.com/v0/${config.airtableBaseId}/Jobs`, {
+      // Encode the table name to handle spaces (e.g. "Line Items")
+      const encodedTable = encodeURIComponent(tableName);
+      const response = await fetch(`https://api.airtable.com/v0/${config.airtableBaseId}/${encodedTable}`, {
         headers: {
           Authorization: `Bearer ${config.airtablePat}`
         }
       });
       
-      if (!response.ok) throw new Error("Failed to fetch jobs");
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const msg = errData.error?.message || response.statusText;
+        
+        if (response.status === 404) throw new Error(`404 Not Found: Could not find table "${tableName}". Check your Base ID and Table Name.`);
+        if (response.status === 401) throw new Error("401 Unauthorized: Check your Personal Access Token permissions.");
+        throw new Error(`Airtable Error (${response.status}): ${msg}`);
+      }
       
       const data = await response.json();
       setJobs(data.records);
     } catch (error) {
       console.error(error);
-      alert("Error fetching from Airtable. Check your ID and Token.");
+      setFetchError(error.message);
     } finally {
       setLoadingJobs(false);
     }
+  };
+
+  // Fetch specific line items for a job
+  const fetchLineItems = async (jobRecordId) => {
+    setLoadingDetails(true);
+    setJobLineItems([]);
+    
+    const tableName = config.airtableLineItemsName || 'Line Items';
+    
+    try {
+      const encodedTable = encodeURIComponent(tableName);
+      // Filter formula: {Job_Link} = 'RECORD_ID'
+      const filterFormula = `filterByFormula=${encodeURIComponent(`{Job_Link}='${jobRecordId}'`)}`;
+      
+      const response = await fetch(`https://api.airtable.com/v0/${config.airtableBaseId}/${encodedTable}?${filterFormula}`, {
+        headers: {
+           Authorization: `Bearer ${config.airtablePat}`
+        }
+      });
+
+      if (!response.ok) throw new Error("Failed to fetch line items");
+      
+      const data = await response.json();
+      setJobLineItems(data.records);
+
+    } catch (error) {
+      console.error("Line Item Fetch Error:", error);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const handleJobClick = (job) => {
+    setSelectedJob(job);
+    fetchLineItems(job.id); // Pass the Airtable Record ID
   };
 
   // --- SUBMIT HANDLER ---
@@ -302,7 +422,6 @@ export default function App() {
       if (response.ok) {
         setSubmitStatus('success');
         setTimeout(() => setSubmitStatus('idle'), 3000);
-        // Refresh board if on dashboard
         if (config.airtableBaseId) fetchJobs(); 
       } else {
         setSubmitStatus('error');
@@ -326,8 +445,33 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
       
+      {/* Print Styles */}
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          .printable-ticket, .printable-ticket * {
+            visibility: visible;
+          }
+          .printable-ticket {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            z-index: 9999;
+            padding: 20px;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
+
       {/* Header */}
-      <header className="max-w-7xl mx-auto mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <header className="max-w-7xl mx-auto mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
         <div className="flex items-center gap-3">
           <div className="bg-blue-600 text-white p-2 rounded-lg shadow-lg">
             <Printer size={28} />
@@ -362,112 +506,242 @@ export default function App() {
 
       {/* --- DASHBOARD VIEW --- */}
       {viewMode === 'dashboard' && (
-        <main className="max-w-7xl mx-auto">
+        <main className="max-w-7xl mx-auto relative no-print">
           
-          {/* Config Panel (Top of Dashboard) */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-end">
-            <div className="flex-1 w-full">
-               <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Airtable Base ID</label>
-               <input 
-                 type="text" name="airtableBaseId" value={config.airtableBaseId} onChange={handleConfigChange}
-                 placeholder="appXXXXXXXXXXXXXX"
-                 className="w-full text-sm border-slate-300 rounded-md font-mono"
-               />
-            </div>
-            <div className="flex-1 w-full">
-               <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Personal Access Token</label>
-               <input 
-                 type="password" name="airtablePat" value={config.airtablePat} onChange={handleConfigChange}
-                 placeholder="patXXXXXXXXXXXXXX..."
-                 className="w-full text-sm border-slate-300 rounded-md font-mono"
-               />
-            </div>
-            <button 
-              onClick={fetchJobs}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 h-10"
-            >
-              {loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-              Refresh Board
-            </button>
+          {/* Config Panel */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6">
+             <div className="flex flex-col md:flex-row gap-4 items-end mb-4">
+              <div className="flex-1 w-full">
+                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Airtable Base ID</label>
+                <input 
+                  type="text" name="airtableBaseId" value={config.airtableBaseId} onChange={handleConfigChange}
+                  placeholder="appXXXXXXXXXXXXXX"
+                  className="w-full text-sm border-slate-300 rounded-md font-mono"
+                />
+              </div>
+              <div className="flex-1 w-full">
+                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Personal Access Token</label>
+                <input 
+                  type="password" name="airtablePat" value={config.airtablePat} onChange={handleConfigChange}
+                  placeholder="patXXXXXXXXXXXXXX..."
+                  className="w-full text-sm border-slate-300 rounded-md font-mono"
+                />
+              </div>
+              <button 
+                onClick={fetchJobs}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 h-10"
+              >
+                {loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                Refresh
+              </button>
+             </div>
+             
+             <div className="pt-2 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Jobs Table Name</label>
+                  <input 
+                    type="text" name="airtableTableName" value={config.airtableTableName} onChange={handleConfigChange}
+                    placeholder="Jobs"
+                    className="w-full text-xs border-slate-200 rounded-md text-slate-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Line Items Table Name</label>
+                  <input 
+                    type="text" name="airtableLineItemsName" value={config.airtableLineItemsName} onChange={handleConfigChange}
+                    placeholder="Line Items"
+                    className="w-full text-xs border-slate-200 rounded-md text-slate-500"
+                  />
+                </div>
+             </div>
           </div>
+
+          {fetchError && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-md shadow-sm">
+               <div className="flex items-center">
+                  <AlertTriangle className="text-red-600 mr-3" size={20} />
+                  <span className="text-red-700 font-medium">{fetchError}</span>
+               </div>
+            </div>
+          )}
 
           {/* Kanban Board */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 overflow-x-auto pb-8">
             
-            {/* Column: Draft */}
-            <div className="bg-slate-100 rounded-xl p-4 min-w-[280px]">
-              <h3 className="font-bold text-slate-600 mb-4 flex items-center gap-2"><Layout size={18}/> Draft Quotes</h3>
-              <div className="space-y-3">
-                {jobs.filter(j => j.fields.Status === 'Draft').map(job => (
-                  <div key={job.id} className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer">
-                    <div className="flex justify-between items-start mb-2">
-                       <span className="text-xs font-mono text-slate-400">{job.fields.Job_ID}</span>
-                       <span className="text-xs font-bold text-slate-600">{formatCurrency(job.fields.Total_Price)}</span>
-                    </div>
-                    <h4 className="font-bold text-slate-800 text-sm mb-1">{job.fields.Project_Name || "Untitled"}</h4>
-                    <p className="text-xs text-slate-500">{job.fields.Client_Name || "Unknown Client"}</p>
-                    <div className="mt-3 text-xs text-slate-400 flex items-center gap-1">
-                       <Clock size={12} /> Due: {job.fields.Due_Date || "N/A"}
-                    </div>
-                  </div>
-                ))}
-                 {jobs.filter(j => j.fields.Status === 'Draft').length === 0 && <p className="text-sm text-slate-400 italic">No drafts</p>}
+            {['Draft', 'Approved', 'Production', 'Complete'].map(status => (
+              <div 
+                key={status} 
+                className={`rounded-xl p-4 min-w-[280px] transition-colors ${status === 'Approved' ? 'bg-blue-50' : status === 'Production' ? 'bg-indigo-50' : status === 'Complete' ? 'bg-emerald-50' : 'bg-slate-100'}`}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, status)}
+              >
+                 <h3 className={`font-bold mb-4 flex items-center gap-2 ${status === 'Approved' ? 'text-blue-800' : status === 'Production' ? 'text-indigo-800' : status === 'Complete' ? 'text-emerald-800' : 'text-slate-600'}`}>
+                    {status === 'Draft' && <Layout size={18}/>}
+                    {status === 'Approved' && <CheckCircle size={18}/>}
+                    {status === 'Production' && <Settings size={18}/>}
+                    {status === 'Complete' && <Package size={18}/>}
+                    {status}
+                 </h3>
+                 <div className="space-y-3">
+                   {jobs.filter(j => j.fields.Status === status || (status === 'Complete' && j.fields.Status === 'Shipped')).map(job => (
+                      <div 
+                        key={job.id} 
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, job.id)}
+                        onClick={() => handleJobClick(job)}
+                        className={`bg-white p-4 rounded-lg shadow-sm border hover:shadow-md transition-all cursor-pointer active:scale-[0.98] relative group ${
+                          status === 'Approved' ? 'border-blue-100 border-l-4 border-l-blue-500' : 
+                          status === 'Production' ? 'border-indigo-100 border-l-4 border-l-indigo-500' :
+                          'border-slate-200'
+                        }`}
+                      >
+                        <div className="absolute top-2 right-2 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
+                           <GripVertical size={16} />
+                        </div>
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="text-xs font-mono text-slate-400">{job.fields.Job_ID}</span>
+                          <span className="text-xs font-bold text-slate-600">{formatCurrency(job.fields.Total_Price)}</span>
+                        </div>
+                        <h4 className="font-bold text-slate-800 text-sm mb-1">{job.fields.Project_Name || "Untitled"}</h4>
+                        <p className="text-xs text-slate-500 mb-2">{job.fields.Client_Name || "Unknown Client"}</p>
+                        
+                        <div className="flex items-center justify-between mt-3">
+                           <div className="text-xs text-slate-400 flex items-center gap-1">
+                              <Clock size={12} /> {job.fields.Due_Date ? job.fields.Due_Date.split('-').slice(1).join('/') : "No Date"}
+                           </div>
+                           {status === 'Production' && <Loader size={14} className="text-indigo-500 animate-spin" />}
+                        </div>
+                      </div>
+                   ))}
+                   {jobs.filter(j => j.fields.Status === status).length === 0 && <p className="text-sm text-slate-400 italic opacity-50 border-2 border-dashed border-slate-200 rounded-lg p-4 text-center">Drop here</p>}
+                 </div>
               </div>
-            </div>
-
-            {/* Column: Approved */}
-            <div className="bg-blue-50 rounded-xl p-4 min-w-[280px]">
-              <h3 className="font-bold text-blue-800 mb-4 flex items-center gap-2"><CheckCircle size={18}/> Approved</h3>
-              <div className="space-y-3">
-                {jobs.filter(j => j.fields.Status === 'Approved').map(job => (
-                  <div key={job.id} className="bg-white p-4 rounded-lg shadow-sm border border-blue-100 border-l-4 border-l-blue-500">
-                    <h4 className="font-bold text-slate-800 text-sm mb-1">{job.fields.Project_Name}</h4>
-                    <p className="text-xs text-slate-500 mb-2">{job.fields.Client_Name}</p>
-                    <div className="flex gap-2">
-                       <span className="px-2 py-1 bg-blue-100 text-blue-700 text-[10px] font-bold rounded">READY FOR PRINT</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Column: Production */}
-            <div className="bg-indigo-50 rounded-xl p-4 min-w-[280px]">
-              <h3 className="font-bold text-indigo-800 mb-4 flex items-center gap-2"><Settings size={18}/> In Production</h3>
-              <div className="space-y-3">
-                {jobs.filter(j => j.fields.Status === 'Production').map(job => (
-                  <div key={job.id} className="bg-white p-4 rounded-lg shadow-sm border border-indigo-100 border-l-4 border-l-indigo-500">
-                     <div className="flex justify-between items-start mb-2">
-                       <span className="text-xs font-mono text-indigo-300">{job.fields.Job_ID}</span>
-                       <Loader size={14} className="text-indigo-500 animate-spin" />
-                    </div>
-                    <h4 className="font-bold text-slate-800 text-sm mb-1">{job.fields.Project_Name}</h4>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Column: Complete */}
-            <div className="bg-emerald-50 rounded-xl p-4 min-w-[280px]">
-              <h3 className="font-bold text-emerald-800 mb-4 flex items-center gap-2"><Package size={18}/> Ready / Done</h3>
-              <div className="space-y-3">
-                {jobs.filter(j => j.fields.Status === 'Complete' || j.fields.Status === 'Shipped').map(job => (
-                  <div key={job.id} className="bg-white p-4 rounded-lg shadow-sm border border-emerald-100 opacity-75 hover:opacity-100">
-                    <h4 className="font-bold text-slate-800 text-sm line-through decoration-emerald-500">{job.fields.Project_Name}</h4>
-                    <p className="text-xs text-slate-500">Delivered</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
+            ))}
           </div>
+
+          {/* JOB DETAIL MODAL */}
+          {selectedJob && (
+             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden printable-ticket">
+                   
+                   {/* Modal Header */}
+                   <div className="bg-slate-900 text-white p-6 flex justify-between items-start print:bg-white print:text-black print:border-b print:border-black">
+                      <div>
+                         <p className="text-slate-400 text-xs font-mono mb-1 print:text-black">{selectedJob.fields.Job_ID}</p>
+                         <h2 className="text-2xl font-bold">{selectedJob.fields.Project_Name}</h2>
+                         <p className="text-slate-300 text-sm print:text-black">{selectedJob.fields.Client_Name} • Due: {selectedJob.fields.Due_Date || "N/A"}</p>
+                      </div>
+                      <button onClick={() => setSelectedJob(null)} className="text-slate-400 hover:text-white p-1 no-print">
+                         <X size={24} />
+                      </button>
+                   </div>
+
+                   {/* Modal Body */}
+                   <div className="p-6 overflow-y-auto flex-1">
+                      
+                      <div className="flex justify-between items-center mb-6 no-print">
+                         <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                            <Layers size={20} className="text-blue-600" /> Production Line Items
+                         </h3>
+                         <div className="flex gap-2">
+                           <button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2">
+                              <Printer size={14} /> Print Traveler
+                           </button>
+                         </div>
+                      </div>
+
+                      {/* Print-only Header */}
+                      <div className="hidden print:block mb-4">
+                         <h3 className="text-lg font-bold border-b-2 border-black pb-1">WORK ORDER / TRAVELER</h3>
+                      </div>
+
+                      {loadingDetails ? (
+                         <div className="py-12 flex flex-col items-center justify-center text-slate-400">
+                            <Loader size={32} className="animate-spin mb-2" />
+                            <p>Fetching specs from Airtable...</p>
+                         </div>
+                      ) : (
+                         <div className="space-y-6">
+                            {jobLineItems.length > 0 ? jobLineItems.map((item, idx) => {
+                               // Parse the JSON Spec String safely
+                               let prodSpecs = null;
+                               try {
+                                  prodSpecs = JSON.parse(item.fields.Production_Specs_JSON || '{}');
+                               } catch (e) { console.log("JSON Parse Error", e)}
+
+                               return (
+                                 <div key={item.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50 print:bg-white print:border-black print:border-2">
+                                    <div className="flex justify-between items-start mb-3 border-b border-slate-200 pb-3 print:border-black">
+                                       <div>
+                                          <span className="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded mr-2 print:text-black print:bg-transparent print:border print:border-black">Item #{idx + 1}</span>
+                                          <span className="font-bold text-slate-800 text-lg print:text-black">{item.fields.Material_Type}</span>
+                                       </div>
+                                       <div className="text-right">
+                                          <span className="block font-bold text-2xl">{item.fields.Quantity} <span className="text-sm font-normal text-slate-500 print:text-black">units</span></span>
+                                       </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                       <div>
+                                          <p className="text-xs text-slate-400 uppercase font-bold mb-1 print:text-black">Dimensions</p>
+                                          <p className="font-mono font-semibold text-lg">{item.fields.Width_In}" x {item.fields.Height_In}"</p>
+                                          <p className="text-xs text-slate-500 mt-1 print:text-black font-bold">{item.fields.Sides === '2' ? 'DOUBLE SIDED' : 'Single Sided'}</p>
+                                       </div>
+                                       
+                                       <div>
+                                          <p className="text-xs text-slate-400 uppercase font-bold mb-1 print:text-black">Finishing</p>
+                                          <ul className="space-y-1">
+                                             <li className="flex items-center gap-2 font-semibold">
+                                                <span className="no-print">{item.fields.Cut_Type === 'Contour' ? <Scissors size={12} /> : <Scissors size={12} />}</span>
+                                                <span>{item.fields.Cut_Type}</span>
+                                             </li>
+                                             {item.fields.Finishing_Lam && <li className="flex items-center gap-2 font-semibold"><span className="no-print"><Maximize size={12} /></span> Laminated</li>}
+                                             {item.fields.Finishing_Grommets && <li className="flex items-center gap-2 font-semibold"><span className="no-print"><CheckCircle size={12} /></span> Grommets</li>}
+                                          </ul>
+                                       </div>
+                                    </div>
+
+                                    {prodSpecs && (
+                                       <div className="mt-4 bg-white border border-dashed border-indigo-200 rounded p-3 print:border-black print:border-2">
+                                          <p className="text-xs text-indigo-600 font-bold uppercase mb-2 flex items-center gap-1 print:text-black">
+                                             <Database size={12} className="no-print" /> Production Data
+                                          </p>
+                                          <div className="flex gap-4 text-xs text-slate-600 print:text-black print:text-sm">
+                                             <div>Sheet: <strong>{prodSpecs.name || prodSpecs.sheet || "N/A"}</strong></div>
+                                             <div>Yield: <strong>{prodSpecs.yield || prodSpecs.yieldPerSheet || "0"} per sheet</strong></div>
+                                             <div>Orientation: <strong>{prodSpecs.orientation || "Standard"}</strong></div>
+                                          </div>
+                                       </div>
+                                    )}
+                                 </div>
+                               )
+                            }) : (
+                               <div className="text-center py-8 bg-slate-50 rounded-lg border border-dashed border-slate-300">
+                                  <p className="text-slate-400">No Line Items found linked to this job.</p>
+                                  <p className="text-xs text-slate-300 mt-1">Check the "Job_Link" column in Airtable.</p>
+                               </div>
+                            )}
+                         </div>
+                      )}
+                   </div>
+
+                   {/* Modal Footer */}
+                   <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end no-print">
+                      <button onClick={() => setSelectedJob(null)} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50">
+                         Close
+                      </button>
+                   </div>
+                </div>
+             </div>
+          )}
+
         </main>
       )}
 
 
       {/* --- QUOTE & TICKET VIEWS --- */}
       {(viewMode === 'quote' || viewMode === 'production') && (
-        <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
           
           {/* LEFT: INPUTS */}
           <div className="lg:col-span-5 space-y-6">
