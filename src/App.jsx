@@ -182,7 +182,12 @@ export default function App() {
     setCustomerResults([]);
 
     try {
-      const response = await fetch(targetUrl + `?query=${encodeURIComponent(customerQuery)}`);
+      // UPDATED: Using POST instead of GET to avoid CORS issues and improve reliability
+      const response = await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: customerQuery })
+      });
       
       if (!response.ok) throw new Error("Search failed");
       const data = await response.json();
