@@ -25,14 +25,17 @@ import {
   GripVertical,
   Search,
   User,
-  UserPlus
+  UserPlus,
+  UploadCloud,
+  Link as LinkIcon
 } from 'lucide-react';
 
 // --- ⚠️ HARDCODED CONFIGURATION ⚠️ ---
 const HARDCODED_SUBMIT_WEBHOOK = "https://hook.us2.make.com/mnsu9apt7zhxfjibn3fm6fyy1qrlotlh"; 
 const HARDCODED_SEARCH_WEBHOOK = "https://hook.us2.make.com/1eld4uno29hvl6fifvmw0e4s7ig54was";
+const HARDCODED_UPLOAD_WEBHOOK = ""; // Optional Drive Upload Webhook
 
-// ✅ All Credentials Configured
+// ✅ Credentials
 const HARDCODED_AIRTABLE_BASE_ID = "app3QrZgktGpCp21l"; 
 const HARDCODED_AIRTABLE_PAT = "pateL0HJlHko5bI1x.53da74b4f542f8ac101af18d4fa4ba87666faebb4835b2c967bc9492c2d95588";     
 
@@ -100,16 +103,13 @@ const MATERIALS = {
   }
 };
 
-// Helper for currency formatting
 const formatCurrency = (val) => {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0);
 };
 
 export default function App() {
-  // --- APP STATE ---
-  const [viewMode, setViewMode] = useState('quote'); // 'quote', 'production', 'dashboard'
+  const [viewMode, setViewMode] = useState('quote'); 
   
-  // Quote Logic State
   const [inputs, setInputs] = useState({
     jobName: '',
     width: 24,
@@ -120,69 +120,65 @@ export default function App() {
     cutType: 'Rectangular',
     addLamination: false,
     addGrommets: false,
-    grommetsPerSign: 4
+    grommetsPerSign: 4,
+    artFileUrl: ''
   });
 
-  // Customer State
-  const [customer, setCustomer] = useState({ id: '', name: '' }); // Selected customer
-  const [customerQuery, setCustomerQuery] = useState(''); // Search input
-  const [customerResults, setCustomerResults] = useState([]); // Search results array
+  const [customer, setCustomer] = useState({ id: '', name: '' });
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [customerResults, setCustomerResults] = useState([]);
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
 
-  // Credentials State (LocalStorage + Hardcoded Fallback)
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+
   const [config, setConfig] = useState(() => {
     if (typeof window !== 'undefined') {
       return {
         webhookUrl: HARDCODED_SUBMIT_WEBHOOK || localStorage.getItem('paramount_webhook_url') || '',
         searchWebhookUrl: HARDCODED_SEARCH_WEBHOOK || localStorage.getItem('paramount_search_webhook_url') || '',
+        uploadWebhookUrl: HARDCODED_UPLOAD_WEBHOOK || localStorage.getItem('paramount_upload_webhook_url') || '',
         airtableBaseId: HARDCODED_AIRTABLE_BASE_ID || localStorage.getItem('paramount_at_base') || '',
         airtablePat: HARDCODED_AIRTABLE_PAT || localStorage.getItem('paramount_at_pat') || '',
         airtableTableName: localStorage.getItem('paramount_at_table') || 'Jobs',
         airtableLineItemsName: localStorage.getItem('paramount_at_lines') || 'Line Items'
       };
     }
-    return { webhookUrl: '', searchWebhookUrl: '', airtableBaseId: '', airtablePat: '', airtableTableName: 'Jobs', airtableLineItemsName: 'Line Items' };
+    return { webhookUrl: '', searchWebhookUrl: '', uploadWebhookUrl: '', airtableBaseId: '', airtablePat: '', airtableTableName: 'Jobs', airtableLineItemsName: 'Line Items' };
   });
 
-  // Persist Config (Only if not hardcoded)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       if (!HARDCODED_SUBMIT_WEBHOOK) localStorage.setItem('paramount_webhook_url', config.webhookUrl);
       if (!HARDCODED_SEARCH_WEBHOOK) localStorage.setItem('paramount_search_webhook_url', config.searchWebhookUrl);
+      if (!HARDCODED_UPLOAD_WEBHOOK) localStorage.setItem('paramount_upload_webhook_url', config.uploadWebhookUrl);
       if (!HARDCODED_AIRTABLE_BASE_ID) localStorage.setItem('paramount_at_base', config.airtableBaseId);
       if (!HARDCODED_AIRTABLE_PAT) localStorage.setItem('paramount_at_pat', config.airtablePat);
-      
       localStorage.setItem('paramount_at_table', config.airtableTableName);
       localStorage.setItem('paramount_at_lines', config.airtableLineItemsName);
     }
   }, [config]);
 
-  // Dashboard State
   const [jobs, setJobs] = useState([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('idle');
   const [fetchError, setFetchError] = useState(null); 
   const [draggingJobId, setDraggingJobId] = useState(null); 
 
-  // Modal State
   const [selectedJob, setSelectedJob] = useState(null);
   const [jobLineItems, setJobLineItems] = useState([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
-  // --- CUSTOMER SEARCH LOGIC ---
+  // --- SEARCH LOGIC (UPDATED FOR ROBUSTNESS) ---
   const searchCustomers = async () => {
     const targetUrl = HARDCODED_SEARCH_WEBHOOK || config.searchWebhookUrl;
-    if (!targetUrl) {
-      alert("Please add your Customer Search Webhook URL in Settings.");
-      return;
-    }
+    if (!targetUrl) { alert("Please add your Customer Search Webhook URL."); return; }
     if (!customerQuery) return;
 
     setIsSearchingCustomer(true);
     setCustomerResults([]);
 
     try {
-      // UPDATED: Using POST instead of GET to avoid CORS issues and improve reliability
       const response = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -190,21 +186,33 @@ export default function App() {
       });
       
       if (!response.ok) throw new Error("Search failed");
-      const data = await response.json();
-      const results = Array.isArray(data) ? data : [];
-      setCustomerResults(results);
       
-      if (results.length === 0) {
-         if (customerQuery.toLowerCase().includes('acme')) {
-            setCustomerResults([{ id: '99', DisplayName: 'Acme Corp (Demo)' }]);
-         }
+      const data = await response.json();
+      
+      // Make.com often wraps array in another object or returns empty text
+      let results = [];
+      if (Array.isArray(data)) {
+         results = data;
+      } else if (data && Array.isArray(data.results)) {
+         results = data.results; // Some setups wrap in { results: [...] }
+      }
+
+      // NORMALIZE DATA: Handle 'Id' vs 'id' mismatch
+      const normalizedResults = results.map(c => ({
+         id: c.id || c.Id || c.ID || 'unknown',
+         DisplayName: c.DisplayName || c.name || c.FullyQualifiedName || 'Unknown Name'
+      }));
+
+      setCustomerResults(normalizedResults);
+      
+      if (normalizedResults.length === 0 && customerQuery.toLowerCase().includes('acme')) {
+         setCustomerResults([{ id: '99', DisplayName: 'Acme Corp (Demo)' }]);
       }
 
     } catch (error) {
-      console.error("Customer search error:", error);
-      setCustomerResults([
-         { id: 'demo-1', DisplayName: `${customerQuery} (Offline Result)` },
-      ]);
+      console.error("Search Error", error);
+      // Only show demo result if real search fails
+      setCustomerResults([{ id: 'demo-1', DisplayName: `${customerQuery} (Offline Result)` }]);
     } finally {
       setIsSearchingCustomer(false);
     }
@@ -212,110 +220,85 @@ export default function App() {
 
   const selectCustomer = (cust) => {
     setCustomer({ id: cust.id, name: cust.DisplayName });
-    setCustomerResults([]); // Clear results
-    setCustomerQuery(''); // Clear search
+    setCustomerResults([]); 
+    setCustomerQuery(''); 
   };
 
-  // --- DRAG AND DROP LOGIC ---
-  const handleDragStart = (e, jobId) => {
-    setDraggingJobId(jobId);
-    e.dataTransfer.effectAllowed = "move";
+  // --- UPLOAD LOGIC ---
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const targetUrl = HARDCODED_UPLOAD_WEBHOOK || config.uploadWebhookUrl;
+    if (!targetUrl) { alert("Please set the Upload Webhook URL."); return; }
+    if (file.size > 8 * 1024 * 1024) { alert("File > 8MB. Please use a link."); return; }
+
+    setIsUploading(true); setUploadError(null);
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = async () => {
+        const base64Data = reader.result.split(',')[1]; 
+        const response = await fetch(targetUrl, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: file.name, mime: file.type, data: base64Data })
+        });
+        if (!response.ok) throw new Error("Upload failed");
+        const result = await response.json();
+        if (result.url) setInputs(prev => ({ ...prev, artFileUrl: result.url }));
+        else throw new Error("No URL returned");
+        setIsUploading(false);
+      };
+    } catch (error) { setUploadError("Upload failed."); setIsUploading(false); }
   };
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  };
-
+  // --- DRAG & DROP ---
+  const handleDragStart = (e, jobId) => { setDraggingJobId(jobId); e.dataTransfer.effectAllowed = "move"; };
+  const handleDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
   const handleDrop = async (e, newStatus) => {
     e.preventDefault();
     if (!draggingJobId) return;
-
     const jobToMove = jobs.find(j => j.id === draggingJobId);
-    if (!jobToMove || jobToMove.fields.Status === newStatus) {
-      setDraggingJobId(null);
-      return;
-    }
-
-    const updatedJobs = jobs.map(j => 
-      j.id === draggingJobId ? { ...j, fields: { ...j.fields, Status: newStatus } } : j
-    );
+    if (!jobToMove || jobToMove.fields.Status === newStatus) { setDraggingJobId(null); return; }
+    const updatedJobs = jobs.map(j => j.id === draggingJobId ? { ...j, fields: { ...j.fields, Status: newStatus } } : j);
     setJobs(updatedJobs);
     setDraggingJobId(null);
-
     if (config.airtableBaseId && config.airtablePat) {
       try {
         const tableName = config.airtableTableName || 'Jobs';
         const encodedTable = encodeURIComponent(tableName);
-        
         await fetch(`https://api.airtable.com/v0/${config.airtableBaseId}/${encodedTable}/${jobToMove.id}`, {
           method: 'PATCH',
-          headers: {
-            Authorization: `Bearer ${config.airtablePat}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            fields: { Status: newStatus },
-            typecast: true
-          })
+          headers: { Authorization: `Bearer ${config.airtablePat}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: { Status: newStatus }, typecast: true })
         });
-      } catch (error) {
-        console.error("Drag update failed:", error);
-        fetchJobs(); 
-      }
+      } catch (error) { fetchJobs(); }
     }
   };
 
-  // --- QUOTE CALCULATOR ENGINE ---
+  // --- CALCULATOR ---
   const calculationResult = useMemo(() => {
     const matData = MATERIALS[inputs.material];
     const width = parseFloat(inputs.width) || 0;
     const height = parseFloat(inputs.height) || 0;
     const qty = parseInt(inputs.quantity) || 0;
-
     if (width === 0 || height === 0 || qty === 0) return null;
 
     const itemSqFt = (width * height) / 144;
     const totalSqFt = itemSqFt * qty;
-    
     let tierRate = 0;
-    for (const tier of matData.tiers) {
-      if (totalSqFt <= tier.limit) {
-        tierRate = tier.price;
-        break;
-      }
-    }
-
+    for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } }
     let basePrintCost = totalSqFt * tierRate;
     if (inputs.sides === '2') basePrintCost *= DOUBLE_SIDED_MULTIPLIER;
 
-    const costs = {
-      print: basePrintCost,
-      setup: GLOBAL_SETUP_FEE,
-      lamination: 0,
-      grommets: 0,
-      contour: 0
-    };
-
+    const costs = { print: basePrintCost, setup: GLOBAL_SETUP_FEE, lamination: 0, grommets: 0, contour: 0 };
     const warnings = [];
 
     if (inputs.addLamination) {
-      if (!matData.can_laminate) {
-        warnings.push(`Cannot laminate ${matData.name}. Lamination removed.`);
-      } else {
-        let lamCost = totalSqFt * FINISHING_RATES.lamination;
-        if (lamCost < FINISHING_RATES.lamination_min) lamCost = FINISHING_RATES.lamination_min;
-        costs.lamination = lamCost;
-      }
+      if (!matData.can_laminate) warnings.push(`Cannot laminate ${matData.name}.`);
+      else { let lamCost = totalSqFt * FINISHING_RATES.lamination; if (lamCost < FINISHING_RATES.lamination_min) lamCost = FINISHING_RATES.lamination_min; costs.lamination = lamCost; }
     }
-
-    if (inputs.addGrommets) {
-      costs.grommets = qty * inputs.grommetsPerSign * FINISHING_RATES.grommets;
-    }
-
-    if (inputs.cutType === 'Contour') {
-      costs.contour = CONTOUR_SETUP_FEE;
-    }
+    if (inputs.addGrommets) costs.grommets = qty * inputs.grommetsPerSign * FINISHING_RATES.grommets;
+    if (inputs.cutType === 'Contour') costs.contour = CONTOUR_SETUP_FEE;
 
     const totalSellPrice = Object.values(costs).reduce((a, b) => a + b, 0);
     const unitPrice = totalSellPrice / qty;
@@ -328,66 +311,37 @@ export default function App() {
         const fitA = Math.floor(sw / width) * Math.floor(sh / height);
         const fitB = Math.floor(sw / height) * Math.floor(sh / width);
         const perSheet = Math.max(fitA, fitB);
-        
         if (perSheet > 0) {
           const sheetsNeeded = Math.ceil(qty / perSheet);
           const totalMatCost = sheetsNeeded * sheet.cost;
           if (totalMatCost < bestCost) {
             bestCost = totalMatCost;
-            bestSheet = {
-              name: sheet.name,
-              costPerSheet: sheet.cost,
-              totalMatCost: totalMatCost,
-              sheetsNeeded: sheetsNeeded,
-              yieldPerSheet: perSheet,
-              orientation: fitB > fitA ? 'Rotated' : 'Standard',
-              waste: (( (sw*sh) - (perSheet * width * height) ) / (sw*sh)) * 100
-            };
+            bestSheet = { name: sheet.name, costPerSheet: sheet.cost, totalMatCost: totalMatCost, sheetsNeeded: sheetsNeeded, yieldPerSheet: perSheet, orientation: fitB > fitA ? 'Rotated' : 'Standard', waste: (( (sw*sh) - (perSheet * width * height) ) / (sw*sh)) * 100 };
           }
         }
       });
     }
-
     const grossMargin = totalSellPrice - (bestSheet ? bestSheet.totalMatCost : 0);
     const marginPercent = (grossMargin / totalSellPrice) * 100;
 
-    return {
-      specs: { totalSqFt, tierRate, itemSqFt },
-      costs,
-      totalSellPrice,
-      unitPrice,
-      warnings,
-      production: bestSheet,
-      profitability: { grossMargin, marginPercent }
-    };
+    return { specs: { totalSqFt, tierRate, itemSqFt }, costs, totalSellPrice, unitPrice, warnings, production: bestSheet, profitability: { grossMargin, marginPercent } };
   }, [inputs]);
 
-  // --- AIRTABLE FETCH LOGIC ---
+  // --- FETCH JOBS ---
   const fetchJobs = async () => {
     setFetchError(null);
-    // Use local var to ensure we get latest config or hardcoded
     const baseId = HARDCODED_AIRTABLE_BASE_ID || config.airtableBaseId;
     const pat = HARDCODED_AIRTABLE_PAT || config.airtablePat;
-
     if (!baseId || !pat) return;
-
     const tableName = config.airtableTableName || 'Jobs';
     setLoadingJobs(true);
     try {
       const encodedTable = encodeURIComponent(tableName);
-      const response = await fetch(`https://api.airtable.com/v0/${baseId}/${encodedTable}`, {
-        headers: { Authorization: `Bearer ${pat}` }
-      });
-      
+      const response = await fetch(`https://api.airtable.com/v0/${baseId}/${encodedTable}`, { headers: { Authorization: `Bearer ${pat}` } });
       if (!response.ok) throw new Error(`Airtable Error: ${response.statusText}`);
-      
       const data = await response.json();
       setJobs(data.records);
-    } catch (error) {
-      setFetchError(error.message);
-    } finally {
-      setLoadingJobs(false);
-    }
+    } catch (error) { setFetchError(error.message); } finally { setLoadingJobs(false); }
   };
 
   const fetchLineItems = async (jobRecordId) => {
@@ -396,48 +350,28 @@ export default function App() {
     const tableName = config.airtableLineItemsName || 'Line Items';
     const baseId = HARDCODED_AIRTABLE_BASE_ID || config.airtableBaseId;
     const pat = HARDCODED_AIRTABLE_PAT || config.airtablePat;
-    
     try {
       const encodedTable = encodeURIComponent(tableName);
       const filterFormula = `filterByFormula=${encodeURIComponent(`{Job_Link}='${jobRecordId}'`)}`;
-      
-      const response = await fetch(`https://api.airtable.com/v0/${baseId}/${encodedTable}?${filterFormula}`, {
-        headers: { Authorization: `Bearer ${pat}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setJobLineItems(data.records);
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoadingDetails(false);
-    }
+      const response = await fetch(`https://api.airtable.com/v0/${baseId}/${encodedTable}?${filterFormula}`, { headers: { Authorization: `Bearer ${pat}` } });
+      if (response.ok) { const data = await response.json(); setJobLineItems(data.records); }
+    } catch (error) { console.error(error); } finally { setLoadingDetails(false); }
   };
 
-  const handleJobClick = (job) => {
-    setSelectedJob(job);
-    fetchLineItems(job.id);
-  };
+  const handleJobClick = (job) => { setSelectedJob(job); fetchLineItems(job.id); };
 
-  // --- SUBMIT HANDLER ---
+  // --- SUBMIT ---
   const handleSubmit = async () => {
     const targetUrl = HARDCODED_SUBMIT_WEBHOOK || config.webhookUrl;
-    if (!targetUrl) {
-      alert("Please enter a Submit Webhook URL.");
-      return;
-    }
-
+    if (!targetUrl) { alert("Please enter a Submit Webhook URL."); return; }
     setSubmitStatus('sending');
     const payload = {
       job_name: inputs.jobName || "Untitled Job",
       order_date: new Date().toISOString().split('T')[0],
       total_price: calculationResult.totalSellPrice,
-      // New Customer Fields
       customer_name: customer.name || "Walk-in", 
       qbo_customer_id: customer.id || "", 
-      // Item Details
+      art_file_link: inputs.artFileUrl || "", // Passed to Airtable
       item_details: {
         material: inputs.material,
         width: inputs.width,
@@ -450,129 +384,50 @@ export default function App() {
         production_json: JSON.stringify(calculationResult.production)
       }
     };
-
     try {
-      const response = await fetch(targetUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (response.ok) {
-        setSubmitStatus('success');
-        setTimeout(() => setSubmitStatus('idle'), 3000);
-        // Refresh board if connected
-        if (HARDCODED_AIRTABLE_BASE_ID || config.airtableBaseId) fetchJobs(); 
-        // Clear customer for next quote
-        setCustomer({ id: '', name: '' });
-      } else {
-        setSubmitStatus('error');
-      }
-    } catch (error) {
-      setSubmitStatus('error');
-    }
+      const response = await fetch(targetUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (response.ok) { setSubmitStatus('success'); setTimeout(() => setSubmitStatus('idle'), 3000); if (HARDCODED_AIRTABLE_BASE_ID || config.airtableBaseId) fetchJobs(); setCustomer({ id: '', name: '' }); setInputs(prev => ({...prev, artFileUrl: ''})); } else { setSubmitStatus('error'); }
+    } catch (error) { setSubmitStatus('error'); }
   };
 
-  const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setInputs(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
-  };
-
-  const handleConfigChange = (e) => {
-    const { name, value } = e.target;
-    setConfig(prev => ({ ...prev, [name]: value }));
-  };
+  const handleInputChange = (e) => { const { name, value, type, checked } = e.target; setInputs(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value })); };
+  const handleConfigChange = (e) => { const { name, value } = e.target; setConfig(prev => ({ ...prev, [name]: value })); };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
+      <style>{`@media print { body * { visibility: hidden; } .printable-ticket, .printable-ticket * { visibility: visible; } .printable-ticket { position: fixed; left: 0; top: 0; width: 100%; height: 100%; background: white; z-index: 9999; padding: 20px; } .no-print { display: none !important; } }`}</style>
       
-      {/* Print Styles */}
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          .printable-ticket, .printable-ticket * { visibility: visible; }
-          .printable-ticket { position: fixed; left: 0; top: 0; width: 100%; height: 100%; background: white; z-index: 9999; padding: 20px; }
-          .no-print { display: none !important; }
-        }
-      `}</style>
-
-      {/* Header */}
       <header className="max-w-7xl mx-auto mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
-        <div className="flex items-center gap-3">
-          <div className="bg-blue-600 text-white p-2 rounded-lg shadow-lg">
-            <Printer size={28} />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Paramount OS</h1>
-            <p className="text-sm text-slate-500">Shop Operating System</p>
-          </div>
-        </div>
-        
+        <div className="flex items-center gap-3"><div className="bg-blue-600 text-white p-2 rounded-lg shadow-lg"><Printer size={28} /></div><div><h1 className="text-2xl font-bold text-slate-800">Paramount OS</h1><p className="text-sm text-slate-500">Shop Operating System</p></div></div>
         <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-sm flex self-start">
-          <button onClick={() => setViewMode('quote')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'quote' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}>
-            <DollarSign size={16} /> Quoter
-          </button>
-          <button onClick={() => setViewMode('production')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'production' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}>
-            <Package size={16} /> Ticket
-          </button>
-          <button onClick={() => { setViewMode('dashboard'); fetchJobs(); }} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'dashboard' ? 'bg-emerald-100 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'}`}>
-            <Kanban size={16} /> Shop Dashboard
-          </button>
+          <button onClick={() => setViewMode('quote')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'quote' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}><DollarSign size={16} /> Quoter</button>
+          <button onClick={() => setViewMode('production')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'production' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}><Package size={16} /> Ticket</button>
+          <button onClick={() => { setViewMode('dashboard'); fetchJobs(); }} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'dashboard' ? 'bg-emerald-100 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'}`}><Kanban size={16} /> Shop Dashboard</button>
         </div>
       </header>
 
-      {/* --- DASHBOARD VIEW --- */}
       {viewMode === 'dashboard' && (
         <main className="max-w-7xl mx-auto relative no-print">
-          
-          {/* CONFIG PANEL (Hidden if hardcoded) */}
           {(!HARDCODED_AIRTABLE_BASE_ID || !HARDCODED_AIRTABLE_PAT) ? (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6">
                <div className="flex flex-col md:flex-row gap-4 items-end mb-4">
-                <div className="flex-1 w-full">
-                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Airtable Base ID</label>
-                  <input type="text" name="airtableBaseId" value={config.airtableBaseId} onChange={handleConfigChange} placeholder="appXXXXXXXXXXXXXX" className="w-full text-sm border-slate-300 rounded-md font-mono" />
-                </div>
-                <div className="flex-1 w-full">
-                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Personal Access Token</label>
-                  <input type="password" name="airtablePat" value={config.airtablePat} onChange={handleConfigChange} placeholder="patXXXXXXXXXXXXXX..." className="w-full text-sm border-slate-300 rounded-md font-mono" />
-                </div>
-                <button onClick={fetchJobs} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 h-10">
-                  {loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh
-                </button>
-               </div>
-               
-               <div className="pt-2 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="text-xs text-slate-400 mb-1 block">Jobs Table Name</label><input type="text" name="airtableTableName" value={config.airtableTableName} onChange={handleConfigChange} placeholder="Jobs" className="w-full text-xs border-slate-200 rounded-md text-slate-500" /></div>
-                  <div><label className="text-xs text-slate-400 mb-1 block">Line Items Table Name</label><input type="text" name="airtableLineItemsName" value={config.airtableLineItemsName} onChange={handleConfigChange} placeholder="Line Items" className="w-full text-xs border-slate-200 rounded-md text-slate-500" /></div>
+                <div className="flex-1 w-full"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Airtable Base ID</label><input type="text" name="airtableBaseId" value={config.airtableBaseId} onChange={handleConfigChange} placeholder="appXXXXXXXXXXXXXX" className="w-full text-sm border-slate-300 rounded-md font-mono" /></div>
+                <div className="flex-1 w-full"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Personal Access Token</label><input type="password" name="airtablePat" value={config.airtablePat} onChange={handleConfigChange} placeholder="patXXXXXXXXXXXXXX..." className="w-full text-sm border-slate-300 rounded-md font-mono" /></div>
+                <button onClick={fetchJobs} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 h-10">{loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh</button>
                </div>
             </div>
-          ) : (
-            /* REFRESH BUTTON ONLY (If Hardcoded) */
-            <div className="flex justify-end mb-4">
-                <button onClick={fetchJobs} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2">
-                  {loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh Board
-                </button>
-            </div>
-          )}
+          ) : ( <div className="flex justify-end mb-4"><button onClick={fetchJobs} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2">{loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh Board</button></div> )}
 
-          {fetchError && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-md shadow-sm"><div className="flex items-center"><AlertTriangle className="text-red-600 mr-3" size={20} /><span className="text-red-700 font-medium">{fetchError}</span></div></div>
-          )}
+          {fetchError && <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-md shadow-sm"><div className="flex items-center"><AlertTriangle className="text-red-600 mr-3" size={20} /><span className="text-red-700 font-medium">{fetchError}</span></div></div>}
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 overflow-x-auto pb-8">
             {['Draft', 'Approved', 'Production', 'Complete'].map(status => (
               <div key={status} className={`rounded-xl p-4 min-w-[280px] transition-colors ${status === 'Approved' ? 'bg-blue-50' : status === 'Production' ? 'bg-indigo-50' : status === 'Complete' ? 'bg-emerald-50' : 'bg-slate-100'}`} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, status)}>
-                 <h3 className={`font-bold mb-4 flex items-center gap-2 ${status === 'Approved' ? 'text-blue-800' : status === 'Production' ? 'text-indigo-800' : status === 'Complete' ? 'text-emerald-800' : 'text-slate-600'}`}>
-                    {status}
-                 </h3>
+                 <h3 className={`font-bold mb-4 flex items-center gap-2 ${status === 'Approved' ? 'text-blue-800' : status === 'Production' ? 'text-indigo-800' : status === 'Complete' ? 'text-emerald-800' : 'text-slate-600'}`}>{status}</h3>
                  <div className="space-y-3">
                    {jobs.filter(j => j.fields.Status === status || (status === 'Complete' && j.fields.Status === 'Shipped')).map(job => (
                       <div key={job.id} draggable onDragStart={(e) => handleDragStart(e, job.id)} onClick={() => handleJobClick(job)} className={`bg-white p-4 rounded-lg shadow-sm border hover:shadow-md transition-all cursor-pointer active:scale-[0.98] relative group`}>
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-xs font-mono text-slate-400">{job.fields.Job_ID}</span>
-                          <span className="text-xs font-bold text-slate-600">{formatCurrency(job.fields.Total_Price)}</span>
-                        </div>
+                        <div className="flex justify-between items-start mb-2"><span className="text-xs font-mono text-slate-400">{job.fields.Job_ID}</span><span className="text-xs font-bold text-slate-600">{formatCurrency(job.fields.Total_Price)}</span></div>
                         <h4 className="font-bold text-slate-800 text-sm mb-1">{job.fields.Project_Name || "Untitled"}</h4>
                         <p className="text-xs text-slate-500 mb-2">{job.fields.Client_Name || "Unknown"}</p>
                       </div>
@@ -586,22 +441,17 @@ export default function App() {
              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
                 <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden printable-ticket">
                    <div className="bg-slate-900 text-white p-6 flex justify-between items-start print:bg-white print:text-black print:border-b print:border-black">
-                      <div>
-                         <p className="text-slate-400 text-xs font-mono mb-1 print:text-black">{selectedJob.fields.Job_ID}</p>
-                         <h2 className="text-2xl font-bold">{selectedJob.fields.Project_Name}</h2>
-                         <p className="text-slate-300 text-sm print:text-black">{selectedJob.fields.Client_Name || "Unknown Client"}</p>
-                      </div>
+                      <div><p className="text-slate-400 text-xs font-mono mb-1 print:text-black">{selectedJob.fields.Job_ID}</p><h2 className="text-2xl font-bold">{selectedJob.fields.Project_Name}</h2><p className="text-slate-300 text-sm print:text-black">{selectedJob.fields.Client_Name || "Unknown Client"}</p></div>
                       <button onClick={() => setSelectedJob(null)} className="text-slate-400 hover:text-white p-1 no-print"><X size={24} /></button>
                    </div>
                    <div className="p-6 overflow-y-auto flex-1">
-                      <div className="flex justify-between items-center mb-6 no-print">
-                         <h3 className="font-bold text-slate-700 flex items-center gap-2"><Layers size={20} className="text-blue-600" /> Production Line Items</h3>
-                         <button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2"><Printer size={14} /> Print Traveler</button>
-                      </div>
+                      <div className="flex justify-between items-center mb-6 no-print"><h3 className="font-bold text-slate-700 flex items-center gap-2"><Layers size={20} className="text-blue-600" /> Production Line Items</h3><button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2"><Printer size={14} /> Print Traveler</button></div>
                       <div className="hidden print:block mb-4"><h3 className="text-lg font-bold border-b-2 border-black pb-1">WORK ORDER</h3></div>
                       {loadingDetails ? <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching...</p></div> : (
                          <div className="space-y-6">
-                            {jobLineItems.map((item, idx) => (
+                            {jobLineItems.map((item, idx) => {
+                               let specs = {}; try { specs = JSON.parse(item.fields.Production_Specs_JSON || '{}'); } catch(e){}
+                               return (
                                  <div key={item.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50 print:bg-white print:border-black print:border-2">
                                     <div className="flex justify-between items-start mb-3 border-b border-slate-200 pb-3 print:border-black">
                                        <div><span className="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded mr-2 print:text-black print:bg-transparent print:border print:border-black">Item #{idx + 1}</span><span className="font-bold text-slate-800 text-lg print:text-black">{item.fields.Material_Type}</span></div>
@@ -611,8 +461,9 @@ export default function App() {
                                        <div><p className="text-xs text-slate-400 uppercase font-bold mb-1 print:text-black">Dimensions</p><p className="font-mono font-semibold text-lg">{item.fields.Width_In}" x {item.fields.Height_In}"</p></div>
                                        <div><p className="text-xs text-slate-400 uppercase font-bold mb-1 print:text-black">Finishing</p><p>{item.fields.Cut_Type}</p></div>
                                     </div>
+                                    {specs.name && <div className="mt-3 text-xs bg-white p-2 border rounded print:border-black">Use <strong>{specs.name}</strong> sheet. Yield: {specs.yield}. Waste: {typeof specs.waste === 'number' ? specs.waste.toFixed(1) : 0}%</div>}
                                  </div>
-                            ))}
+                            )})} 
                          </div>
                       )}
                    </div>
@@ -622,75 +473,36 @@ export default function App() {
         </main>
       )}
 
-      {/* --- QUOTE VIEW --- */}
       {(viewMode === 'quote' || viewMode === 'production') && (
         <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
           <div className="lg:col-span-5 space-y-6">
             
-            {/* CUSTOMER SEARCH CARD */}
+            {/* CUSTOMER SEARCH */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-emerald-500">
                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><User size={18} className="text-emerald-600" /> Customer</h2>
-               
                {customer.name ? (
-                  <div className="flex items-center justify-between bg-emerald-50 p-3 rounded-lg border border-emerald-100">
-                     <div className="flex items-center gap-3">
-                        <div className="bg-emerald-200 text-emerald-800 p-2 rounded-full"><Check size={16} /></div>
-                        <div>
-                           <p className="font-bold text-emerald-900 text-sm">{customer.name}</p>
-                           <p className="text-xs text-emerald-600">QBO ID: {customer.id}</p>
-                        </div>
-                     </div>
-                     <button onClick={() => setCustomer({id:'', name:''})} className="text-emerald-400 hover:text-emerald-700"><X size={16} /></button>
-                  </div>
+                  <div className="flex items-center justify-between bg-emerald-50 p-3 rounded-lg border border-emerald-100"><div className="flex items-center gap-3"><div className="bg-emerald-200 text-emerald-800 p-2 rounded-full"><Check size={16} /></div><div><p className="font-bold text-emerald-900 text-sm">{customer.name}</p><p className="text-xs text-emerald-600">QBO ID: {customer.id}</p></div></div><button onClick={() => setCustomer({id:'', name:''})} className="text-emerald-400 hover:text-emerald-700"><X size={16} /></button></div>
                ) : (
                   <div className="relative">
-                     <div className="flex gap-2">
-                        <input 
-                           type="text" 
-                           placeholder="Search QBO (e.g. Acme)" 
-                           className="flex-1 rounded-md border-slate-300 text-sm p-2"
-                           value={customerQuery}
-                           onChange={(e) => setCustomerQuery(e.target.value)}
-                           onKeyDown={(e) => e.key === 'Enter' && searchCustomers()}
-                        />
-                        <button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">
-                           {isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}
-                        </button>
-                     </div>
-                     {customerResults.length > 0 && (
-                        <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-40 overflow-y-auto">
-                           {customerResults.map(res => (
-                              <div key={res.id} onClick={() => selectCustomer(res)} className="p-3 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-50 last:border-0">
-                                 <p className="font-bold text-slate-700">{res.DisplayName}</p>
-                                 <p className="text-xs text-slate-400">ID: {res.id}</p>
-                              </div>
-                           ))}
-                        </div>
-                     )}
+                     <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
+                     {customerResults.length > 0 && ( <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-40 overflow-y-auto">{customerResults.map(res => (<div key={res.id} onClick={() => selectCustomer(res)} className="p-3 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-50 last:border-0"><p className="font-bold text-slate-700">{res.DisplayName}</p><p className="text-xs text-slate-400">ID: {res.id}</p></div>))}</div> )}
                   </div>
                )}
             </div>
 
+            {/* JOB SPECS */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Settings size={18} className="text-blue-600" /> Job Specs</h2>
               <div className="space-y-4">
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Job / Project Name</label><input type="text" name="jobName" placeholder="e.g. Fall Event Signs" value={inputs.jobName} onChange={handleInputChange} className="w-full rounded-md border-slate-300 shadow-sm border p-2" /></div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Width (in)</label><input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Height (in)</label><input type="number" name="height" value={inputs.height} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
-                </div>
+                <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-slate-700 mb-1">Width (in)</label><input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div><div><label className="block text-sm font-medium text-slate-700 mb-1">Height (in)</label><input type="number" name="height" value={inputs.height} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label><input type="number" name="quantity" value={inputs.quantity} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Material</label><select name="material" value={inputs.material} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2">{Object.values(MATERIALS).map(m => (<option key={m.key} value={m.name}>{m.name}</option>))}</select></div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Print Sides</label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="1" checked={inputs.sides === '1'} onChange={handleInputChange} /><span>Single Sided</span></label>
-                    <label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="2" checked={inputs.sides === '2'} onChange={handleInputChange} /><span>Double Sided</span></label>
-                  </div>
-                </div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Print Sides</label><div className="flex gap-4"><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="1" checked={inputs.sides === '1'} onChange={handleInputChange} /><span>Single Sided</span></label><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="2" checked={inputs.sides === '2'} onChange={handleInputChange} /><span>Double Sided</span></label></div></div>
               </div>
             </div>
 
+            {/* FINISHING */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Scissors size={18} className="text-green-600" /> Finishing</h2>
               <div className="space-y-4">
@@ -702,13 +514,56 @@ export default function App() {
               </div>
             </div>
 
+            {/* ART FILES (NEW) */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-indigo-500">
+               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><UploadCloud size={18} className="text-indigo-600" /> Art Files</h2>
+               
+               <div className="space-y-3">
+                  {/* 1. Direct Upload */}
+                  <div className="border-2 border-dashed border-indigo-100 rounded-lg p-4 text-center hover:bg-indigo-50 transition-colors cursor-pointer relative">
+                     <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} disabled={isUploading} />
+                     {isUploading ? (
+                        <div className="flex flex-col items-center justify-center text-indigo-600"><Loader size={24} className="animate-spin mb-2" /><span className="text-sm font-medium">Uploading to Drive...</span></div>
+                     ) : (
+                        <div className="flex flex-col items-center justify-center text-indigo-400">
+                           <UploadCloud size={24} className="mb-2" />
+                           <span className="text-sm font-medium text-indigo-600">Click to Upload File</span>
+                           <span className="text-[10px] text-slate-400 mt-1">Max 8MB (Logos, Proofs)</span>
+                        </div>
+                     )}
+                  </div>
+
+                  {/* 2. Paste Link */}
+                  <div className="relative">
+                     <div className="absolute left-3 top-2.5 text-slate-400"><LinkIcon size={16} /></div>
+                     <input 
+                        type="text" 
+                        name="artFileUrl"
+                        placeholder="Paste WeTransfer / Dropbox Link" 
+                        className="w-full pl-9 rounded-md border-slate-300 text-sm p-2"
+                        value={inputs.artFileUrl}
+                        onChange={handleInputChange}
+                     />
+                  </div>
+                  
+                  {/* Success Indicator */}
+                  {inputs.artFileUrl && (
+                     <div className="bg-indigo-50 text-indigo-700 text-xs p-2 rounded flex items-center gap-2">
+                        <CheckCircle size={14} /> File Link Ready
+                     </div>
+                  )}
+                  {uploadError && <p className="text-red-500 text-xs mt-1">{uploadError}</p>}
+               </div>
+            </div>
+
             {/* ADMIN CONFIG (Only shown if not all hardcoded) */}
-            {(!HARDCODED_SUBMIT_WEBHOOK || !HARDCODED_SEARCH_WEBHOOK || !HARDCODED_AIRTABLE_BASE_ID) && (
+            {(!HARDCODED_SUBMIT_WEBHOOK || !HARDCODED_SEARCH_WEBHOOK || !HARDCODED_UPLOAD_WEBHOOK) && (
               <div className="bg-slate-100 rounded-xl shadow-inner border border-slate-200 p-6">
                 <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Webhook Settings</h2>
                 <div className="space-y-3">
                   {!HARDCODED_SUBMIT_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">Submit Order Webhook</label><input type="text" name="webhookUrl" value={config.webhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
                   {!HARDCODED_SEARCH_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">QBO Search Webhook</label><input type="text" name="searchWebhookUrl" value={config.searchWebhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
+                  {!HARDCODED_UPLOAD_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">Drive Upload Webhook</label><input type="text" name="uploadWebhookUrl" value={config.uploadWebhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
                 </div>
               </div>
             )}
