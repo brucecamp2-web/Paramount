@@ -191,7 +191,7 @@ export default function App() {
   const [jobLineItems, setJobLineItems] = useState([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
-  // --- SEARCH LOGIC (FIXED) ---
+  // --- SEARCH LOGIC (ROBUST) ---
   const searchCustomers = async () => {
     const targetUrl = config.searchWebhookUrl;
     if (!targetUrl) { alert("Please add your Customer Search Webhook URL."); return; }
@@ -213,30 +213,50 @@ export default function App() {
         throw new Error(`HTTP Error: ${response.status}`);
       }
       
-      let data = [];
+      // ✅ CHECK 1: Did Make return "Accepted" (Missing Webhook Response)?
+      if (rawText === "Accepted") {
+        throw new Error("Make returned 'Accepted' (text) instead of JSON. Add a 'Webhook Response' module in Make.");
+      }
+
+      let data = null;
       try {
         // Only try parsing if there is text content
         if (rawText && rawText.trim().length > 0) {
            data = JSON.parse(rawText);
         }
       } catch (e) {
-        console.warn("Search response was not valid JSON, using empty result.", rawText);
-        // We don't throw here to avoid "Error: Check Console" for minor parsing glitches
+        console.warn("Search response was not valid JSON:", rawText);
+        throw new Error(`Response was not JSON. received: "${rawText.substring(0, 20)}..."`);
       }
       
-      const results = Array.isArray(data) ? data : [];
+      // ✅ CHECK 2: Smart Unwrapping (Handle { data: [] } vs [])
+      let results = [];
+      if (Array.isArray(data)) {
+        results = data;
+      } else if (data && typeof data === 'object') {
+        // Try to find the array if it's wrapped
+        results = data.data || data.results || data.customers || data.items || [];
+        
+        // If it's a single object (not an array) but looks like a customer, wrap it
+        if (!Array.isArray(results) && (data.id || data.Id || data.ID || data.DisplayName)) {
+            results = [data];
+        }
+      }
       
-      const normalizedResults = results.map(c => ({
+      const normalizedResults = Array.isArray(results) ? results.map(c => ({
          id: c.id || c.Id || c.ID || 'unknown',
          DisplayName: c.DisplayName || c.name || c.FullyQualifiedName || 'Unknown Name'
-      }));
+      })) : [];
 
-      setCustomerResults(normalizedResults);
-      
       if (normalizedResults.length === 0) {
          if (customerQuery.toLowerCase().includes('acme')) {
             setCustomerResults([{ id: '99', DisplayName: 'Acme Corp (Demo)' }]);
+         } else {
+            // ✅ CHECK 3: Explicit "No Results" state
+            setCustomerResults([{ id: 'no-results', DisplayName: 'No customers found.' }]);
          }
+      } else {
+         setCustomerResults(normalizedResults);
       }
 
     } catch (error) {
@@ -248,8 +268,8 @@ export default function App() {
   };
 
   const selectCustomer = (cust) => {
-    // Prevent selecting the error message as a customer
-    if (cust.id === 'error-msg') return; 
+    // Prevent selecting the error message or empty state
+    if (cust.id === 'error-msg' || cust.id === 'no-results') return; 
     setCustomer({ id: cust.id, name: cust.DisplayName });
     setCustomerResults([]); 
     setCustomerQuery(''); 
@@ -535,7 +555,7 @@ export default function App() {
                ) : (
                   <div className="relative">
                      <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
-                     {customerResults.length > 0 && ( <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-40 overflow-y-auto">{customerResults.map(res => (<div key={res.id} onClick={() => selectCustomer(res)} className={`p-3 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-50 last:border-0 ${res.id === 'error-msg' ? 'text-red-500 cursor-default hover:bg-white' : ''}`}><p className="font-bold text-slate-700">{res.DisplayName}</p>{res.id !== 'error-msg' && <p className="text-xs text-slate-400">ID: {res.id}</p>}</div>))}</div> )}
+                     {customerResults.length > 0 && ( <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-40 overflow-y-auto">{customerResults.map(res => (<div key={res.id} onClick={() => selectCustomer(res)} className={`p-3 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-50 last:border-0 ${res.id === 'error-msg' ? 'text-red-500 cursor-default hover:bg-white' : res.id === 'no-results' ? 'text-slate-400 cursor-default hover:bg-white' : ''}`}><p className={`font-bold ${res.id === 'error-msg' ? 'text-red-500' : 'text-slate-700'}`}>{res.DisplayName}</p>{(res.id !== 'error-msg' && res.id !== 'no-results') && <p className="text-xs text-slate-400">ID: {res.id}</p>}</div>))}</div> )}
                   </div>
                )}
             </div>
