@@ -30,7 +30,7 @@ import {
 const HARDCODED_SUBMIT_WEBHOOK = "https://hook.us2.make.com/mnsu9apt7zhxfjibn3fm6fyy1qrlotlh"; 
 const HARDCODED_SEARCH_WEBHOOK = "https://hook.us2.make.com/1eld4uno29hvl6fifvmw0e4s7ig54was";
 const HARDCODED_CREATE_WEBHOOK = "https://hook.us2.make.com/adv73b6j8yxufrxkklj6xtdjr9u5xuqs"; 
-const HARDCODED_UPLOAD_WEBHOOK = "https://hook.us2.make.com/oq7wkuxehxjfkngam1rhc9rdltqr3v6s"; // 🟢 Updated
+const HARDCODED_UPLOAD_WEBHOOK = "https://hook.us2.make.com/oq7wkuxehxjfkngam1rhc9rdltqr3v6s"; 
 
 // ✅ Credentials (Hardcoded for stability)
 const HARDCODED_AIRTABLE_BASE_ID = "app3QrZgktGpCp21l"; 
@@ -322,8 +322,8 @@ export default function App() {
     const targetUrl = config.uploadWebhookUrl; 
     if (!targetUrl) { alert("Please set the Upload Webhook URL."); return; }
     
-    // 🟢 LIMIT: 5MB to be safe with Make Webhooks (Base64 adds ~33% size)
-    if (file.size > 5 * 1024 * 1024) { alert("File > 5MB. Please use a link (WeTransfer/Dropbox) for large files."); return; }
+    // 🟢 LIMIT: Increased to 100MB per user request
+    if (file.size > 100 * 1024 * 1024) { alert("File > 100MB. Please use a link (WeTransfer/Dropbox) for huge files."); return; }
 
     setIsUploading(true); setUploadError(null);
     try {
@@ -663,7 +663,7 @@ export default function App() {
                   {/* 1. Direct Upload */}
                   <div className="border-2 border-dashed border-indigo-100 rounded-lg p-4 text-center hover:bg-indigo-50 transition-colors cursor-pointer relative">
                      <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} disabled={isUploading} />
-                     {isUploading ? (<div className="flex flex-col items-center justify-center text-indigo-600"><Loader size={24} className="animate-spin mb-2" /><span className="text-sm font-medium">Uploading to Drive...</span></div>) : (<div className="flex flex-col items-center justify-center text-indigo-400"><UploadCloud size={24} className="mb-2" /><span className="text-sm font-medium text-indigo-600">Click to Upload File</span><span className="text-[10px] text-slate-400 mt-1">Max 5MB (Logos, Proofs)</span></div>)}
+                     {isUploading ? (<div className="flex flex-col items-center justify-center text-indigo-600"><Loader size={24} className="animate-spin mb-2" /><span className="text-sm font-medium">Uploading to Drive...</span></div>) : (<div className="flex flex-col items-center justify-center text-indigo-400"><UploadCloud size={24} className="mb-2" /><span className="text-sm font-medium text-indigo-600">Click to Upload File</span><span className="text-[10px] text-slate-400 mt-1">Max 100MB (Logos, Proofs)</span></div>)}
                   </div>
                   {/* 2. Paste Link */}
                   <div className="relative"><div className="absolute left-3 top-2.5 text-slate-400"><LinkIcon size={16} /></div><input type="text" name="artFileUrl" placeholder="Paste WeTransfer / Dropbox Link" className="w-full pl-9 rounded-md border-slate-300 text-sm p-2" value={inputs.artFileUrl} onChange={handleInputChange} /></div>
