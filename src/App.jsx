@@ -20,6 +20,7 @@ import {
   X,
   Search,
   User,
+  UserPlus,
   UploadCloud,
   Link as LinkIcon
 } from 'lucide-react';
@@ -28,6 +29,7 @@ import {
 // These values will override any local settings
 const HARDCODED_SUBMIT_WEBHOOK = "https://hook.us2.make.com/mnsu9apt7zhxfjibn3fm6fyy1qrlotlh"; 
 const HARDCODED_SEARCH_WEBHOOK = "https://hook.us2.make.com/1eld4uno29hvl6fifvmw0e4s7ig54was";
+const HARDCODED_CREATE_WEBHOOK = ""; // 🟢 NEW: Add your "Create Customer" Webhook URL here
 const HARDCODED_UPLOAD_WEBHOOK = ""; 
 
 // ✅ Credentials (Hardcoded for stability)
@@ -124,6 +126,7 @@ export default function App() {
   const [customerQuery, setCustomerQuery] = useState('');
   const [customerResults, setCustomerResults] = useState([]);
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false); // 🟢 New State
 
   // Upload State
   const [isUploading, setIsUploading] = useState(false);
@@ -131,19 +134,21 @@ export default function App() {
 
   // --- SAFE CONFIG INITIALIZATION ---
   const [config, setConfig] = useState(() => {
-    // 1. Default empty values
     let loadedConfig = { 
-        webhookUrl: '', searchWebhookUrl: '', uploadWebhookUrl: '', 
+        webhookUrl: '', 
+        searchWebhookUrl: '', 
+        createWebhookUrl: '', // 🟢 New Config Field
+        uploadWebhookUrl: '', 
         airtableBaseId: '', airtablePat: '', airtableTableName: 'Jobs', airtableLineItemsName: 'Line Items' 
     };
     
     try {
-        // 2. Try loading from LocalStorage if available
         if (typeof window !== 'undefined') {
             const get = (k) => localStorage.getItem(k) || '';
             loadedConfig = {
                 webhookUrl: get('paramount_webhook_url'),
                 searchWebhookUrl: get('paramount_search_webhook_url'),
+                createWebhookUrl: get('paramount_create_webhook_url'), // 🟢 Load from storage
                 uploadWebhookUrl: get('paramount_upload_webhook_url'),
                 airtableBaseId: get('paramount_at_base'),
                 airtablePat: get('paramount_at_pat'),
@@ -151,13 +156,11 @@ export default function App() {
                 airtableLineItemsName: get('paramount_at_lines') || 'Line Items'
             };
         }
-    } catch (e) {
-        console.warn("Storage access failed, using defaults.");
-    }
+    } catch (e) { console.warn("Storage access failed"); }
 
-    // 3. OVERRIDE with Hardcoded values if they exist (Safety Net)
     if (HARDCODED_SUBMIT_WEBHOOK) loadedConfig.webhookUrl = HARDCODED_SUBMIT_WEBHOOK;
     if (HARDCODED_SEARCH_WEBHOOK) loadedConfig.searchWebhookUrl = HARDCODED_SEARCH_WEBHOOK;
+    if (HARDCODED_CREATE_WEBHOOK) loadedConfig.createWebhookUrl = HARDCODED_CREATE_WEBHOOK; // 🟢 Apply Hardcoded
     if (HARDCODED_UPLOAD_WEBHOOK) loadedConfig.uploadWebhookUrl = HARDCODED_UPLOAD_WEBHOOK;
     if (HARDCODED_AIRTABLE_BASE_ID) loadedConfig.airtableBaseId = HARDCODED_AIRTABLE_BASE_ID;
     if (HARDCODED_AIRTABLE_PAT) loadedConfig.airtablePat = HARDCODED_AIRTABLE_PAT;
@@ -165,12 +168,13 @@ export default function App() {
     return loadedConfig;
   });
 
-  // Persist Config (Only for fields that aren't hardcoded)
+  // Persist Config
   useEffect(() => {
     try {
         if (typeof window !== 'undefined') {
             if (!HARDCODED_SUBMIT_WEBHOOK) localStorage.setItem('paramount_webhook_url', config.webhookUrl);
             if (!HARDCODED_SEARCH_WEBHOOK) localStorage.setItem('paramount_search_webhook_url', config.searchWebhookUrl);
+            if (!HARDCODED_CREATE_WEBHOOK) localStorage.setItem('paramount_create_webhook_url', config.createWebhookUrl); // 🟢 Persist
             if (!HARDCODED_UPLOAD_WEBHOOK && config.uploadWebhookUrl) localStorage.setItem('paramount_upload_webhook_url', config.uploadWebhookUrl);
             if (!HARDCODED_AIRTABLE_BASE_ID) localStorage.setItem('paramount_at_base', config.airtableBaseId);
             if (!HARDCODED_AIRTABLE_PAT) localStorage.setItem('paramount_at_pat', config.airtablePat);
@@ -178,7 +182,7 @@ export default function App() {
             localStorage.setItem('paramount_at_table', config.airtableTableName);
             localStorage.setItem('paramount_at_lines', config.airtableLineItemsName);
         }
-    } catch (e) { /* Ignore storage errors */ }
+    } catch (e) { }
   }, [config]);
 
   const [jobs, setJobs] = useState([]);
@@ -209,46 +213,29 @@ export default function App() {
       
       const rawText = await response.text();
       
-      if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status}`);
-      }
-      
-      // ✅ CHECK 1: Did Make return "Accepted" (Missing Webhook Response)?
+      // Handle "Accepted" without JSON
       if (rawText === "Accepted") {
-        // Fallback: If searching for demo, show it even if webhook is broken
         if (customerQuery.toLowerCase().includes('acme')) {
              setCustomerResults([{ id: '99', DisplayName: 'Acme Corp (Demo)' }]);
-             return; // Exit early
+        } else {
+             // If search fails/is unconfigured, we still allow creating a new one, so just show empty + create option
+             setCustomerResults([{ id: 'make-setup', DisplayName: '⚠️ Search Webhook needs "Webhook Response" module' }]);
         }
-
-        // Otherwise show the setup hint
-        setCustomerResults([{ id: 'make-setup', DisplayName: '⚠️ Setup: Add "Webhook Response" in Make' }]);
+        setIsSearchingCustomer(false);
         return;
       }
 
       let data = null;
       try {
-        // Only try parsing if there is text content
-        if (rawText && rawText.trim().length > 0) {
-           data = JSON.parse(rawText);
-        }
-      } catch (e) {
-        console.warn("Search response was not valid JSON:", rawText);
-        throw new Error(`Response was not JSON. received: "${rawText.substring(0, 20)}..."`);
-      }
+        if (rawText && rawText.trim().length > 0) data = JSON.parse(rawText);
+      } catch (e) { throw new Error(`Response was not JSON. received: "${rawText.substring(0, 20)}..."`); }
       
-      // ✅ CHECK 2: Smart Unwrapping (Handle { data: [] } vs [])
+      // Smart Unwrapping
       let results = [];
-      if (Array.isArray(data)) {
-        results = data;
-      } else if (data && typeof data === 'object') {
-        // Try to find the array if it's wrapped
+      if (Array.isArray(data)) results = data;
+      else if (data && typeof data === 'object') {
         results = data.data || data.results || data.customers || data.items || [];
-        
-        // If it's a single object (not an array) but looks like a customer, wrap it
-        if (!Array.isArray(results) && (data.id || data.Id || data.ID || data.DisplayName)) {
-            results = [data];
-        }
+        if (!Array.isArray(results) && (data.id || data.Id || data.ID || data.DisplayName)) results = [data];
       }
       
       const normalizedResults = Array.isArray(results) ? results.map(c => ({
@@ -256,27 +243,72 @@ export default function App() {
          DisplayName: c.DisplayName || c.name || c.FullyQualifiedName || 'Unknown Name'
       })) : [];
 
-      if (normalizedResults.length === 0) {
+      // 🟢 Logic: Always append "Create New" option, even if results exist (useful for similar names)
+      const finalResults = [...normalizedResults];
+      if (finalResults.length === 0) {
          if (customerQuery.toLowerCase().includes('acme')) {
-            setCustomerResults([{ id: '99', DisplayName: 'Acme Corp (Demo)' }]);
+            finalResults.push({ id: '99', DisplayName: 'Acme Corp (Demo)' });
          } else {
-            // ✅ CHECK 3: Explicit "No Results" state
-            setCustomerResults([{ id: 'no-results', DisplayName: 'No customers found.' }]);
+            finalResults.push({ id: 'no-results', DisplayName: 'No customers found.' });
          }
-      } else {
-         setCustomerResults(normalizedResults);
       }
 
+      // Add the Create Option
+      if (customerQuery.trim().length > 1) {
+          finalResults.push({ id: 'create-new', DisplayName: `+ Create "${customerQuery}" in QuickBooks`, isAction: true });
+      }
+
+      setCustomerResults(finalResults);
+
     } catch (error) {
-      console.error("Search Error:", error);
       setCustomerResults([{ id: 'error-msg', DisplayName: `Error: ${error.message}` }]);
     } finally {
       setIsSearchingCustomer(false);
     }
   };
 
+  // 🟢 NEW: Handle Create Customer
+  const handleCreateCustomer = async () => {
+    const targetUrl = config.createWebhookUrl;
+    if (!targetUrl) { alert("Please set the 'Create Customer Webhook URL' in settings below."); return; }
+    
+    setIsCreatingCustomer(true);
+    try {
+        const response = await fetch(targetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: customerQuery })
+        });
+        
+        if (!response.ok) throw new Error("Webhook Error");
+        
+        const rawText = await response.text();
+        if (rawText === "Accepted") throw new Error("Make returned 'Accepted'. Add a Webhook Response module.");
+        
+        const data = JSON.parse(rawText);
+        // Expecting { id: "...", DisplayName: "..." }
+        const newId = data.id || data.Id || data.ID;
+        const newName = data.DisplayName || data.name || data.FullyQualifiedName || customerQuery;
+        
+        if (newId) {
+            setCustomer({ id: newId, name: newName });
+            setCustomerResults([]);
+            setCustomerQuery('');
+        } else {
+            alert("Customer created, but no ID returned from Make.");
+        }
+    } catch (error) {
+        alert(`Creation failed: ${error.message}`);
+    } finally {
+        setIsCreatingCustomer(false);
+    }
+  };
+
   const selectCustomer = (cust) => {
-    // Prevent selecting the error message or empty state or setup hint
+    if (cust.id === 'create-new') {
+        handleCreateCustomer();
+        return;
+    }
     if (cust.id === 'error-msg' || cust.id === 'no-results' || cust.id === 'make-setup') return; 
     setCustomer({ id: cust.id, name: cust.DisplayName });
     setCustomerResults([]); 
@@ -563,7 +595,29 @@ export default function App() {
                ) : (
                   <div className="relative">
                      <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
-                     {customerResults.length > 0 && ( <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-40 overflow-y-auto">{customerResults.map(res => (<div key={res.id} onClick={() => selectCustomer(res)} className={`p-3 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-50 last:border-0 ${res.id === 'error-msg' ? 'text-red-500 cursor-default hover:bg-white' : res.id === 'no-results' ? 'text-slate-400 cursor-default hover:bg-white' : res.id === 'make-setup' ? 'text-amber-600 bg-amber-50 cursor-default hover:bg-amber-50' : ''}`}><p className={`font-bold ${res.id === 'error-msg' ? 'text-red-500' : res.id === 'make-setup' ? 'text-amber-700' : 'text-slate-700'}`}>{res.DisplayName}</p>{(res.id !== 'error-msg' && res.id !== 'no-results' && res.id !== 'make-setup') && <p className="text-xs text-slate-400">ID: {res.id}</p>}</div>))}</div> )}
+                     {/* DROPDOWN RESULTS */}
+                     {customerResults.length > 0 && ( 
+                        <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-60 overflow-y-auto">
+                            {customerResults.map(res => (
+                                <div 
+                                    key={res.id} 
+                                    onClick={() => selectCustomer(res)} 
+                                    className={`p-3 border-b border-slate-50 last:border-0 flex items-center gap-2
+                                        ${res.isAction ? 'bg-blue-50 hover:bg-blue-100 cursor-pointer text-blue-800' : ''}
+                                        ${res.id === 'error-msg' ? 'text-red-500 cursor-default hover:bg-white' : ''}
+                                        ${res.id === 'no-results' || res.id === 'make-setup' ? 'text-slate-400 cursor-default hover:bg-white' : ''}
+                                        ${!res.isAction && res.id !== 'error-msg' && res.id !== 'no-results' && res.id !== 'make-setup' ? 'hover:bg-slate-50 cursor-pointer' : ''}
+                                    `}
+                                >
+                                    {res.isAction && (isCreatingCustomer ? <Loader size={16} className="animate-spin" /> : <UserPlus size={16} />)}
+                                    <div>
+                                        <p className={`font-bold text-sm ${res.isAction ? 'text-blue-700' : ''}`}>{res.DisplayName}</p>
+                                        {(res.id !== 'error-msg' && res.id !== 'no-results' && res.id !== 'make-setup' && !res.isAction) && <p className="text-xs text-slate-400">ID: {res.id}</p>}
+                                    </div>
+                                </div>
+                            ))}
+                        </div> 
+                     )}
                   </div>
                )}
             </div>
@@ -609,12 +663,13 @@ export default function App() {
             </div>
 
             {/* ADMIN CONFIG (Only shown if not all hardcoded) */}
-            {(!HARDCODED_SUBMIT_WEBHOOK || !HARDCODED_SEARCH_WEBHOOK || !HARDCODED_UPLOAD_WEBHOOK) && (
+            {(!HARDCODED_SUBMIT_WEBHOOK || !HARDCODED_SEARCH_WEBHOOK || !HARDCODED_UPLOAD_WEBHOOK || !HARDCODED_CREATE_WEBHOOK) && (
               <div className="bg-slate-100 rounded-xl shadow-inner border border-slate-200 p-6">
                 <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Webhook Settings</h2>
                 <div className="space-y-3">
                   {!HARDCODED_SUBMIT_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">Submit Order Webhook</label><input type="text" name="webhookUrl" value={config.webhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
                   {!HARDCODED_SEARCH_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">QBO Search Webhook</label><input type="text" name="searchWebhookUrl" value={config.searchWebhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
+                  {!HARDCODED_CREATE_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">Create Customer Webhook</label><input type="text" name="createWebhookUrl" value={config.createWebhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
                   {!HARDCODED_UPLOAD_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">Drive Upload Webhook</label><input type="text" name="uploadWebhookUrl" value={config.uploadWebhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
                 </div>
               </div>
