@@ -498,13 +498,35 @@ export default function App() {
                               // 🟢 DEBUG: Log fields to console to help troubleshoot
                               console.log('Current Item Fields:', item?.fields);
 
-                              const mat = getValue(item, ['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A');
-                              const w = getValue(item, ['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0');
-                              const h = getValue(item, ['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0');
-                              const q = getValue(item, ['Quantity', 'Qty', 'quantity', 'Count'], '0');
-                              const cut = getValue(item, ['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None');
-                              const lam = getValue(item, ['Lamination', 'lamination', 'Laminate'], false);
-                              const grom = getValue(item, ['Grommets', 'grommets', 'Grommet'], false);
+                              // 🟢 NEW: Attempt to parse JSON blob from Item if direct columns fail
+                              let jsonSpecs = {};
+                              try {
+                                  const jsonField = item?.fields?.Production_Specs_JSON || item?.fields?.Item_Details_JSON || item?.fields?.Details_JSON || item?.fields?.Specs_JSON;
+                                  if (jsonField) jsonSpecs = typeof jsonField === 'object' ? jsonField : JSON.parse(jsonField);
+                              } catch(e) {}
+
+                              // Helper to check both record fields AND the parsed JSON
+                              const resolve = (keys, defaultVal) => {
+                                  // Try fields first
+                                  const fieldVal = getValue(item, keys);
+                                  if (fieldVal !== undefined && fieldVal !== null) return fieldVal;
+                                  
+                                  // Try JSON second
+                                  for (const k of keys) {
+                                      if (jsonSpecs[k] || jsonSpecs[k.toLowerCase()] || jsonSpecs[k.toUpperCase()]) {
+                                           return jsonSpecs[k] || jsonSpecs[k.toLowerCase()] || jsonSpecs[k.toUpperCase()];
+                                      }
+                                  }
+                                  return defaultVal;
+                              };
+
+                              const mat = resolve(['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A');
+                              const w = resolve(['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0');
+                              const h = resolve(['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0');
+                              const q = resolve(['Quantity', 'Qty', 'quantity', 'Count'], '0');
+                              const cut = resolve(['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None');
+                              const lam = resolve(['Lamination', 'lamination', 'Laminate'], false);
+                              const grom = resolve(['Grommets', 'grommets', 'Grommet'], false);
 
                               return (
                                   <>
