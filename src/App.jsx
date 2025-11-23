@@ -215,7 +215,15 @@ export default function App() {
       
       // ✅ CHECK 1: Did Make return "Accepted" (Missing Webhook Response)?
       if (rawText === "Accepted") {
-        throw new Error("Make returned 'Accepted' (text) instead of JSON. Add a 'Webhook Response' module in Make.");
+        // Fallback: If searching for demo, show it even if webhook is broken
+        if (customerQuery.toLowerCase().includes('acme')) {
+             setCustomerResults([{ id: '99', DisplayName: 'Acme Corp (Demo)' }]);
+             return; // Exit early
+        }
+
+        // Otherwise show the setup hint
+        setCustomerResults([{ id: 'make-setup', DisplayName: '⚠️ Setup: Add "Webhook Response" in Make' }]);
+        return;
       }
 
       let data = null;
@@ -268,8 +276,8 @@ export default function App() {
   };
 
   const selectCustomer = (cust) => {
-    // Prevent selecting the error message or empty state
-    if (cust.id === 'error-msg' || cust.id === 'no-results') return; 
+    // Prevent selecting the error message or empty state or setup hint
+    if (cust.id === 'error-msg' || cust.id === 'no-results' || cust.id === 'make-setup') return; 
     setCustomer({ id: cust.id, name: cust.DisplayName });
     setCustomerResults([]); 
     setCustomerQuery(''); 
@@ -555,7 +563,7 @@ export default function App() {
                ) : (
                   <div className="relative">
                      <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
-                     {customerResults.length > 0 && ( <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-40 overflow-y-auto">{customerResults.map(res => (<div key={res.id} onClick={() => selectCustomer(res)} className={`p-3 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-50 last:border-0 ${res.id === 'error-msg' ? 'text-red-500 cursor-default hover:bg-white' : res.id === 'no-results' ? 'text-slate-400 cursor-default hover:bg-white' : ''}`}><p className={`font-bold ${res.id === 'error-msg' ? 'text-red-500' : 'text-slate-700'}`}>{res.DisplayName}</p>{(res.id !== 'error-msg' && res.id !== 'no-results') && <p className="text-xs text-slate-400">ID: {res.id}</p>}</div>))}</div> )}
+                     {customerResults.length > 0 && ( <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-40 overflow-y-auto">{customerResults.map(res => (<div key={res.id} onClick={() => selectCustomer(res)} className={`p-3 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-50 last:border-0 ${res.id === 'error-msg' ? 'text-red-500 cursor-default hover:bg-white' : res.id === 'no-results' ? 'text-slate-400 cursor-default hover:bg-white' : res.id === 'make-setup' ? 'text-amber-600 bg-amber-50 cursor-default hover:bg-amber-50' : ''}`}><p className={`font-bold ${res.id === 'error-msg' ? 'text-red-500' : res.id === 'make-setup' ? 'text-amber-700' : 'text-slate-700'}`}>{res.DisplayName}</p>{(res.id !== 'error-msg' && res.id !== 'no-results' && res.id !== 'make-setup') && <p className="text-xs text-slate-400">ID: {res.id}</p>}</div>))}</div> )}
                   </div>
                )}
             </div>
