@@ -29,8 +29,8 @@ import {
 // These values will override any local settings
 const HARDCODED_SUBMIT_WEBHOOK = "https://hook.us2.make.com/mnsu9apt7zhxfjibn3fm6fyy1qrlotlh"; 
 const HARDCODED_SEARCH_WEBHOOK = "https://hook.us2.make.com/1eld4uno29hvl6fifvmw0e4s7ig54was";
-const HARDCODED_CREATE_WEBHOOK = "https://hook.us2.make.com/adv73b6j8yxufrxkklj6xtdjr9u5xuqs"; // 🟢 Updated
-const HARDCODED_UPLOAD_WEBHOOK = ""; 
+const HARDCODED_CREATE_WEBHOOK = "https://hook.us2.make.com/adv73b6j8yxufrxkklj6xtdjr9u5xuqs"; 
+const HARDCODED_UPLOAD_WEBHOOK = "https://hook.us2.make.com/oq7wkuxehxjfkngam1rhc9rdltqr3v6s"; // 🟢 Updated
 
 // ✅ Credentials (Hardcoded for stability)
 const HARDCODED_AIRTABLE_BASE_ID = "app3QrZgktGpCp21l"; 
@@ -126,7 +126,7 @@ export default function App() {
   const [customerQuery, setCustomerQuery] = useState('');
   const [customerResults, setCustomerResults] = useState([]);
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
-  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false); // 🟢 New State
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false); 
 
   // Upload State
   const [isUploading, setIsUploading] = useState(false);
@@ -137,7 +137,7 @@ export default function App() {
     let loadedConfig = { 
         webhookUrl: '', 
         searchWebhookUrl: '', 
-        createWebhookUrl: '', // 🟢 New Config Field
+        createWebhookUrl: '', 
         uploadWebhookUrl: '', 
         airtableBaseId: '', airtablePat: '', airtableTableName: 'Jobs', airtableLineItemsName: 'Line Items' 
     };
@@ -148,7 +148,7 @@ export default function App() {
             loadedConfig = {
                 webhookUrl: get('paramount_webhook_url'),
                 searchWebhookUrl: get('paramount_search_webhook_url'),
-                createWebhookUrl: get('paramount_create_webhook_url'), // 🟢 Load from storage
+                createWebhookUrl: get('paramount_create_webhook_url'), 
                 uploadWebhookUrl: get('paramount_upload_webhook_url'),
                 airtableBaseId: get('paramount_at_base'),
                 airtablePat: get('paramount_at_pat'),
@@ -160,7 +160,7 @@ export default function App() {
 
     if (HARDCODED_SUBMIT_WEBHOOK) loadedConfig.webhookUrl = HARDCODED_SUBMIT_WEBHOOK;
     if (HARDCODED_SEARCH_WEBHOOK) loadedConfig.searchWebhookUrl = HARDCODED_SEARCH_WEBHOOK;
-    if (HARDCODED_CREATE_WEBHOOK) loadedConfig.createWebhookUrl = HARDCODED_CREATE_WEBHOOK; // 🟢 Apply Hardcoded
+    if (HARDCODED_CREATE_WEBHOOK) loadedConfig.createWebhookUrl = HARDCODED_CREATE_WEBHOOK; 
     if (HARDCODED_UPLOAD_WEBHOOK) loadedConfig.uploadWebhookUrl = HARDCODED_UPLOAD_WEBHOOK;
     if (HARDCODED_AIRTABLE_BASE_ID) loadedConfig.airtableBaseId = HARDCODED_AIRTABLE_BASE_ID;
     if (HARDCODED_AIRTABLE_PAT) loadedConfig.airtablePat = HARDCODED_AIRTABLE_PAT;
@@ -174,7 +174,7 @@ export default function App() {
         if (typeof window !== 'undefined') {
             if (!HARDCODED_SUBMIT_WEBHOOK) localStorage.setItem('paramount_webhook_url', config.webhookUrl);
             if (!HARDCODED_SEARCH_WEBHOOK) localStorage.setItem('paramount_search_webhook_url', config.searchWebhookUrl);
-            if (!HARDCODED_CREATE_WEBHOOK) localStorage.setItem('paramount_create_webhook_url', config.createWebhookUrl); // 🟢 Persist
+            if (!HARDCODED_CREATE_WEBHOOK) localStorage.setItem('paramount_create_webhook_url', config.createWebhookUrl); 
             if (!HARDCODED_UPLOAD_WEBHOOK && config.uploadWebhookUrl) localStorage.setItem('paramount_upload_webhook_url', config.uploadWebhookUrl);
             if (!HARDCODED_AIRTABLE_BASE_ID) localStorage.setItem('paramount_at_base', config.airtableBaseId);
             if (!HARDCODED_AIRTABLE_PAT) localStorage.setItem('paramount_at_pat', config.airtablePat);
@@ -321,7 +321,9 @@ export default function App() {
     if (!file) return;
     const targetUrl = config.uploadWebhookUrl; 
     if (!targetUrl) { alert("Please set the Upload Webhook URL."); return; }
-    if (file.size > 8 * 1024 * 1024) { alert("File > 8MB. Please use a link."); return; }
+    
+    // 🟢 LIMIT: 5MB to be safe with Make Webhooks (Base64 adds ~33% size)
+    if (file.size > 5 * 1024 * 1024) { alert("File > 5MB. Please use a link (WeTransfer/Dropbox) for large files."); return; }
 
     setIsUploading(true); setUploadError(null);
     try {
@@ -334,7 +336,15 @@ export default function App() {
           body: JSON.stringify({ name: file.name, mime: file.type, data: base64Data })
         });
         if (!response.ok) throw new Error("Upload failed");
-        const result = await response.json();
+        
+        const rawText = await response.text();
+        if (rawText === "Accepted") {
+            setUploadError("Error: Make 'Accepted' (Missing Webhook Response)");
+            setIsUploading(false);
+            return;
+        }
+
+        const result = JSON.parse(rawText);
         if (result.url) setInputs(prev => ({ ...prev, artFileUrl: result.url }));
         else throw new Error("No URL returned");
         setIsUploading(false);
@@ -653,7 +663,7 @@ export default function App() {
                   {/* 1. Direct Upload */}
                   <div className="border-2 border-dashed border-indigo-100 rounded-lg p-4 text-center hover:bg-indigo-50 transition-colors cursor-pointer relative">
                      <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} disabled={isUploading} />
-                     {isUploading ? (<div className="flex flex-col items-center justify-center text-indigo-600"><Loader size={24} className="animate-spin mb-2" /><span className="text-sm font-medium">Uploading to Drive...</span></div>) : (<div className="flex flex-col items-center justify-center text-indigo-400"><UploadCloud size={24} className="mb-2" /><span className="text-sm font-medium text-indigo-600">Click to Upload File</span><span className="text-[10px] text-slate-400 mt-1">Max 8MB (Logos, Proofs)</span></div>)}
+                     {isUploading ? (<div className="flex flex-col items-center justify-center text-indigo-600"><Loader size={24} className="animate-spin mb-2" /><span className="text-sm font-medium">Uploading to Drive...</span></div>) : (<div className="flex flex-col items-center justify-center text-indigo-400"><UploadCloud size={24} className="mb-2" /><span className="text-sm font-medium text-indigo-600">Click to Upload File</span><span className="text-[10px] text-slate-400 mt-1">Max 5MB (Logos, Proofs)</span></div>)}
                   </div>
                   {/* 2. Paste Link */}
                   <div className="relative"><div className="absolute left-3 top-2.5 text-slate-400"><LinkIcon size={16} /></div><input type="text" name="artFileUrl" placeholder="Paste WeTransfer / Dropbox Link" className="w-full pl-9 rounded-md border-slate-300 text-sm p-2" value={inputs.artFileUrl} onChange={handleInputChange} /></div>
