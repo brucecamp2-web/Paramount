@@ -33,7 +33,6 @@ import {
 // --- ⚠️ HARDCODED CONFIGURATION ⚠️ ---
 const HARDCODED_SUBMIT_WEBHOOK = "https://hook.us2.make.com/mnsu9apt7zhxfjibn3fm6fyy1qrlotlh"; 
 const HARDCODED_SEARCH_WEBHOOK = "https://hook.us2.make.com/1eld4uno29hvl6fifvmw0e4s7ig54was";
-const HARDCODED_UPLOAD_WEBHOOK = ""; // Optional Drive Upload Webhook
 
 // ✅ Credentials
 const HARDCODED_AIRTABLE_BASE_ID = "app3QrZgktGpCp21l"; 
@@ -129,6 +128,7 @@ export default function App() {
   const [customerResults, setCustomerResults] = useState([]);
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
 
+  // Upload State
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
 
@@ -137,7 +137,7 @@ export default function App() {
       return {
         webhookUrl: HARDCODED_SUBMIT_WEBHOOK || localStorage.getItem('paramount_webhook_url') || '',
         searchWebhookUrl: HARDCODED_SEARCH_WEBHOOK || localStorage.getItem('paramount_search_webhook_url') || '',
-        uploadWebhookUrl: HARDCODED_UPLOAD_WEBHOOK || localStorage.getItem('paramount_upload_webhook_url') || '',
+        uploadWebhookUrl: localStorage.getItem('paramount_upload_webhook_url') || '',
         airtableBaseId: HARDCODED_AIRTABLE_BASE_ID || localStorage.getItem('paramount_at_base') || '',
         airtablePat: HARDCODED_AIRTABLE_PAT || localStorage.getItem('paramount_at_pat') || '',
         airtableTableName: localStorage.getItem('paramount_at_table') || 'Jobs',
@@ -151,7 +151,7 @@ export default function App() {
     if (typeof window !== 'undefined') {
       if (!HARDCODED_SUBMIT_WEBHOOK) localStorage.setItem('paramount_webhook_url', config.webhookUrl);
       if (!HARDCODED_SEARCH_WEBHOOK) localStorage.setItem('paramount_search_webhook_url', config.searchWebhookUrl);
-      if (!HARDCODED_UPLOAD_WEBHOOK) localStorage.setItem('paramount_upload_webhook_url', config.uploadWebhookUrl);
+      if (config.uploadWebhookUrl) localStorage.setItem('paramount_upload_webhook_url', config.uploadWebhookUrl);
       if (!HARDCODED_AIRTABLE_BASE_ID) localStorage.setItem('paramount_at_base', config.airtableBaseId);
       if (!HARDCODED_AIRTABLE_PAT) localStorage.setItem('paramount_at_pat', config.airtablePat);
       localStorage.setItem('paramount_at_table', config.airtableTableName);
@@ -169,7 +169,7 @@ export default function App() {
   const [jobLineItems, setJobLineItems] = useState([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
-  // --- SEARCH LOGIC (UPDATED FOR ROBUSTNESS) ---
+  // --- SEARCH LOGIC (WITH DEBUGGING) ---
   const searchCustomers = async () => {
     const targetUrl = HARDCODED_SEARCH_WEBHOOK || config.searchWebhookUrl;
     if (!targetUrl) { alert("Please add your Customer Search Webhook URL."); return; }
@@ -179,25 +179,31 @@ export default function App() {
     setCustomerResults([]);
 
     try {
+      console.log("Sending search for:", customerQuery);
+      
       const response = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: customerQuery })
       });
       
-      if (!response.ok) throw new Error("Search failed");
-      
-      const data = await response.json();
-      
-      // Make.com often wraps array in another object or returns empty text
-      let results = [];
-      if (Array.isArray(data)) {
-         results = data;
-      } else if (data && Array.isArray(data.results)) {
-         results = data.results; // Some setups wrap in { results: [...] }
-      }
+      // Log raw text to see what Make is actually sending back
+      const rawText = await response.text();
+      console.log("Raw Response from Make:", rawText);
 
-      // NORMALIZE DATA: Handle 'Id' vs 'id' mismatch
+      if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+      
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (e) {
+        console.error("JSON Parse Error. Make sent invalid JSON:", rawText);
+        throw new Error("Invalid JSON response from Make");
+      }
+      
+      const results = Array.isArray(data) ? data : [];
+      
+      // Normalize
       const normalizedResults = results.map(c => ({
          id: c.id || c.Id || c.ID || 'unknown',
          DisplayName: c.DisplayName || c.name || c.FullyQualifiedName || 'Unknown Name'
@@ -205,14 +211,13 @@ export default function App() {
 
       setCustomerResults(normalizedResults);
       
-      if (normalizedResults.length === 0 && customerQuery.toLowerCase().includes('acme')) {
-         setCustomerResults([{ id: '99', DisplayName: 'Acme Corp (Demo)' }]);
+      if (normalizedResults.length === 0) {
+         console.warn("No results found in array.");
       }
 
     } catch (error) {
-      console.error("Search Error", error);
-      // Only show demo result if real search fails
-      setCustomerResults([{ id: 'demo-1', DisplayName: `${customerQuery} (Offline Result)` }]);
+      console.error("Search Critical Failure:", error);
+      setCustomerResults([{ id: 'demo-1', DisplayName: `Error: Check Console (F12)` }]);
     } finally {
       setIsSearchingCustomer(false);
     }
@@ -228,7 +233,7 @@ export default function App() {
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const targetUrl = HARDCODED_UPLOAD_WEBHOOK || config.uploadWebhookUrl;
+    const targetUrl = config.uploadWebhookUrl; // No hardcoded fallback for upload yet
     if (!targetUrl) { alert("Please set the Upload Webhook URL."); return; }
     if (file.size > 8 * 1024 * 1024) { alert("File > 8MB. Please use a link."); return; }
 
@@ -415,15 +420,31 @@ export default function App() {
                 <div className="flex-1 w-full"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Personal Access Token</label><input type="password" name="airtablePat" value={config.airtablePat} onChange={handleConfigChange} placeholder="patXXXXXXXXXXXXXX..." className="w-full text-sm border-slate-300 rounded-md font-mono" /></div>
                 <button onClick={fetchJobs} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 h-10">{loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh</button>
                </div>
+               
+               <div className="pt-2 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label className="text-xs text-slate-400 mb-1 block">Jobs Table Name</label><input type="text" name="airtableTableName" value={config.airtableTableName} onChange={handleConfigChange} placeholder="Jobs" className="w-full text-xs border-slate-200 rounded-md text-slate-500" /></div>
+                  <div><label className="text-xs text-slate-400 mb-1 block">Line Items Table Name</label><input type="text" name="airtableLineItemsName" value={config.airtableLineItemsName} onChange={handleConfigChange} placeholder="Line Items" className="w-full text-xs border-slate-200 rounded-md text-slate-500" /></div>
+               </div>
             </div>
-          ) : ( <div className="flex justify-end mb-4"><button onClick={fetchJobs} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2">{loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh Board</button></div> )}
+          ) : (
+            /* REFRESH BUTTON ONLY (If Hardcoded) */
+            <div className="flex justify-end mb-4">
+                <button onClick={fetchJobs} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2">
+                  {loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh Board
+                </button>
+            </div>
+          )}
 
-          {fetchError && <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-md shadow-sm"><div className="flex items-center"><AlertTriangle className="text-red-600 mr-3" size={20} /><span className="text-red-700 font-medium">{fetchError}</span></div></div>}
+          {fetchError && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-md shadow-sm"><div className="flex items-center"><AlertTriangle className="text-red-600 mr-3" size={20} /><span className="text-red-700 font-medium">{fetchError}</span></div></div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 overflow-x-auto pb-8">
             {['Draft', 'Approved', 'Production', 'Complete'].map(status => (
               <div key={status} className={`rounded-xl p-4 min-w-[280px] transition-colors ${status === 'Approved' ? 'bg-blue-50' : status === 'Production' ? 'bg-indigo-50' : status === 'Complete' ? 'bg-emerald-50' : 'bg-slate-100'}`} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, status)}>
-                 <h3 className={`font-bold mb-4 flex items-center gap-2 ${status === 'Approved' ? 'text-blue-800' : status === 'Production' ? 'text-indigo-800' : status === 'Complete' ? 'text-emerald-800' : 'text-slate-600'}`}>{status}</h3>
+                 <h3 className={`font-bold mb-4 flex items-center gap-2 ${status === 'Approved' ? 'text-blue-800' : status === 'Production' ? 'text-indigo-800' : status === 'Complete' ? 'text-emerald-800' : 'text-slate-600'}`}>
+                    {status}
+                 </h3>
                  <div className="space-y-3">
                    {jobs.filter(j => j.fields.Status === status || (status === 'Complete' && j.fields.Status === 'Shipped')).map(job => (
                       <div key={job.id} draggable onDragStart={(e) => handleDragStart(e, job.id)} onClick={() => handleJobClick(job)} className={`bg-white p-4 rounded-lg shadow-sm border hover:shadow-md transition-all cursor-pointer active:scale-[0.98] relative group`}>
@@ -441,16 +462,28 @@ export default function App() {
              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
                 <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden printable-ticket">
                    <div className="bg-slate-900 text-white p-6 flex justify-between items-start print:bg-white print:text-black print:border-b print:border-black">
-                      <div><p className="text-slate-400 text-xs font-mono mb-1 print:text-black">{selectedJob.fields.Job_ID}</p><h2 className="text-2xl font-bold">{selectedJob.fields.Project_Name}</h2><p className="text-slate-300 text-sm print:text-black">{selectedJob.fields.Client_Name || "Unknown Client"}</p></div>
+                      <div>
+                         <p className="text-slate-400 text-xs font-mono mb-1 print:text-black">{selectedJob.fields.Job_ID}</p>
+                         <h2 className="text-2xl font-bold">{selectedJob.fields.Project_Name}</h2>
+                         <p className="text-slate-300 text-sm print:text-black">{selectedJob.fields.Client_Name || "Unknown Client"}</p>
+                      </div>
                       <button onClick={() => setSelectedJob(null)} className="text-slate-400 hover:text-white p-1 no-print"><X size={24} /></button>
                    </div>
                    <div className="p-6 overflow-y-auto flex-1">
-                      <div className="flex justify-between items-center mb-6 no-print"><h3 className="font-bold text-slate-700 flex items-center gap-2"><Layers size={20} className="text-blue-600" /> Production Line Items</h3><button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2"><Printer size={14} /> Print Traveler</button></div>
+                      <div className="flex justify-between items-center mb-6 no-print">
+                         <h3 className="font-bold text-slate-700 flex items-center gap-2"><Layers size={20} className="text-blue-600" /> Production Line Items</h3>
+                         <button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2"><Printer size={14} /> Print Traveler</button>
+                      </div>
                       <div className="hidden print:block mb-4"><h3 className="text-lg font-bold border-b-2 border-black pb-1">WORK ORDER</h3></div>
                       {loadingDetails ? <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching...</p></div> : (
                          <div className="space-y-6">
                             {jobLineItems.map((item, idx) => {
-                               let specs = {}; try { specs = JSON.parse(item.fields.Production_Specs_JSON || '{}'); } catch(e){}
+                               // Parse the JSON Spec String safely
+                               let prodSpecs = null;
+                               try {
+                                  prodSpecs = JSON.parse(item.fields.Production_Specs_JSON || '{}');
+                               } catch (e) { console.log("JSON Parse Error", e)}
+
                                return (
                                  <div key={item.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50 print:bg-white print:border-black print:border-2">
                                     <div className="flex justify-between items-start mb-3 border-b border-slate-200 pb-3 print:border-black">
@@ -461,7 +494,7 @@ export default function App() {
                                        <div><p className="text-xs text-slate-400 uppercase font-bold mb-1 print:text-black">Dimensions</p><p className="font-mono font-semibold text-lg">{item.fields.Width_In}" x {item.fields.Height_In}"</p></div>
                                        <div><p className="text-xs text-slate-400 uppercase font-bold mb-1 print:text-black">Finishing</p><p>{item.fields.Cut_Type}</p></div>
                                     </div>
-                                    {specs.name && <div className="mt-3 text-xs bg-white p-2 border rounded print:border-black">Use <strong>{specs.name}</strong> sheet. Yield: {specs.yield}. Waste: {typeof specs.waste === 'number' ? specs.waste.toFixed(1) : 0}%</div>}
+                                    {prodSpecs && prodSpecs.name && <div className="mt-3 text-xs bg-white p-2 border rounded print:border-black">Use <strong>{prodSpecs.name}</strong> sheet. Yield: {prodSpecs.yield}. Waste: {typeof prodSpecs.waste === 'number' ? prodSpecs.waste.toFixed(1) : 0}%</div>}
                                  </div>
                             )})} 
                          </div>
@@ -473,36 +506,75 @@ export default function App() {
         </main>
       )}
 
+      {/* --- QUOTE VIEW --- */}
       {(viewMode === 'quote' || viewMode === 'production') && (
         <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
           <div className="lg:col-span-5 space-y-6">
             
-            {/* CUSTOMER SEARCH */}
+            {/* CUSTOMER SEARCH CARD */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-emerald-500">
                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><User size={18} className="text-emerald-600" /> Customer</h2>
+               
                {customer.name ? (
-                  <div className="flex items-center justify-between bg-emerald-50 p-3 rounded-lg border border-emerald-100"><div className="flex items-center gap-3"><div className="bg-emerald-200 text-emerald-800 p-2 rounded-full"><Check size={16} /></div><div><p className="font-bold text-emerald-900 text-sm">{customer.name}</p><p className="text-xs text-emerald-600">QBO ID: {customer.id}</p></div></div><button onClick={() => setCustomer({id:'', name:''})} className="text-emerald-400 hover:text-emerald-700"><X size={16} /></button></div>
+                  <div className="flex items-center justify-between bg-emerald-50 p-3 rounded-lg border border-emerald-100">
+                     <div className="flex items-center gap-3">
+                        <div className="bg-emerald-200 text-emerald-800 p-2 rounded-full"><Check size={16} /></div>
+                        <div>
+                           <p className="font-bold text-emerald-900 text-sm">{customer.name}</p>
+                           <p className="text-xs text-emerald-600">QBO ID: {customer.id}</p>
+                        </div>
+                     </div>
+                     <button onClick={() => setCustomer({id:'', name:''})} className="text-emerald-400 hover:text-emerald-700"><X size={16} /></button>
+                  </div>
                ) : (
                   <div className="relative">
-                     <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
-                     {customerResults.length > 0 && ( <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-40 overflow-y-auto">{customerResults.map(res => (<div key={res.id} onClick={() => selectCustomer(res)} className="p-3 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-50 last:border-0"><p className="font-bold text-slate-700">{res.DisplayName}</p><p className="text-xs text-slate-400">ID: {res.id}</p></div>))}</div> )}
+                     <div className="flex gap-2">
+                        <input 
+                           type="text" 
+                           placeholder="Search QBO (e.g. Acme)" 
+                           className="flex-1 rounded-md border-slate-300 text-sm p-2"
+                           value={customerQuery}
+                           onChange={(e) => setCustomerQuery(e.target.value)}
+                           onKeyDown={(e) => e.key === 'Enter' && searchCustomers()}
+                        />
+                        <button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">
+                           {isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}
+                        </button>
+                     </div>
+                     {customerResults.length > 0 && (
+                        <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-40 overflow-y-auto">
+                           {customerResults.map(res => (
+                              <div key={res.id} onClick={() => selectCustomer(res)} className="p-3 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-50 last:border-0">
+                                 <p className="font-bold text-slate-700">{res.DisplayName}</p>
+                                 <p className="text-xs text-slate-400">ID: {res.id}</p>
+                              </div>
+                           ))}
+                        </div>
+                     )}
                   </div>
                )}
             </div>
 
-            {/* JOB SPECS */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Settings size={18} className="text-blue-600" /> Job Specs</h2>
               <div className="space-y-4">
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Job / Project Name</label><input type="text" name="jobName" placeholder="e.g. Fall Event Signs" value={inputs.jobName} onChange={handleInputChange} className="w-full rounded-md border-slate-300 shadow-sm border p-2" /></div>
-                <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-slate-700 mb-1">Width (in)</label><input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div><div><label className="block text-sm font-medium text-slate-700 mb-1">Height (in)</label><input type="number" name="height" value={inputs.height} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div></div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Width (in)</label><input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Height (in)</label><input type="number" name="height" value={inputs.height} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
+                </div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label><input type="number" name="quantity" value={inputs.quantity} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Material</label><select name="material" value={inputs.material} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2">{Object.values(MATERIALS).map(m => (<option key={m.key} value={m.name}>{m.name}</option>))}</select></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Print Sides</label><div className="flex gap-4"><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="1" checked={inputs.sides === '1'} onChange={handleInputChange} /><span>Single Sided</span></label><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="2" checked={inputs.sides === '2'} onChange={handleInputChange} /><span>Double Sided</span></label></div></div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Print Sides</label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="1" checked={inputs.sides === '1'} onChange={handleInputChange} /><span>Single Sided</span></label>
+                    <label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="2" checked={inputs.sides === '2'} onChange={handleInputChange} /><span>Double Sided</span></label>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* FINISHING */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Scissors size={18} className="text-green-600" /> Finishing</h2>
               <div className="space-y-4">
