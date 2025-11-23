@@ -183,7 +183,7 @@ export default function App() {
     addGrommets: false,
     grommetsPerSign: 4,
     artFileUrl: '',
-    dueDate: '' // 🟢 NEW: Due Date State
+    dueDate: '' 
   });
 
   const [customer, setCustomer] = useState({ id: '', name: '' });
@@ -744,6 +744,32 @@ export default function App() {
                               <Clock size={16} /> Due: {new Date(selectedJob.fields.Due_Date).toLocaleDateString()}
                           </div>
                       )}
+
+                      {/* 🟢 NEW: Job Details Summary Block (Fallback/Quick View) */}
+                      <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Material</label>
+                              <p className="font-bold text-slate-800">{selectedJob.fields.Material || selectedJob.fields.Material_Type || "N/A"}</p>
+                          </div>
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Dimensions</label>
+                              <p className="font-bold text-slate-800">
+                                  {(selectedJob.fields.Width || selectedJob.fields.Width_In || "0")}" x {(selectedJob.fields.Height || selectedJob.fields.Height_In || "0")}"
+                              </p>
+                          </div>
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quantity</label>
+                              <p className="font-bold text-slate-800 text-lg">{selectedJob.fields.Quantity || "0"}</p>
+                          </div>
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Finishing</label>
+                              <p className="font-bold text-slate-800 text-xs leading-tight mt-1">{selectedJob.fields.Cut_Type || selectedJob.fields.Finishing || "None"}</p>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                  {selectedJob.fields.Lamination && <span className="text-[10px] bg-blue-100 text-blue-800 px-1 rounded">Lam</span>}
+                                  {selectedJob.fields.Grommets && <span className="text-[10px] bg-green-100 text-green-800 px-1 rounded">Grom</span>}
+                              </div>
+                          </div>
+                      </div>
 
                       <div className="hidden print:block mb-4"><h3 className="text-lg font-bold border-b-2 border-black pb-1">WORK ORDER</h3></div>
                       {loadingDetails ? <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching...</p></div> : (
