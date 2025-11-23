@@ -22,7 +22,8 @@ import {
   User,
   UserPlus,
   UploadCloud,
-  Link as LinkIcon
+  Link as LinkIcon,
+  FileText
 } from 'lucide-react';
 
 // --- ⚠️ HARDCODED CONFIGURATION ⚠️ ---
@@ -680,7 +681,7 @@ export default function App() {
                   </div>
                   {/* 2. Paste Link */}
                   <div className="relative"><div className="absolute left-3 top-2.5 text-slate-400"><LinkIcon size={16} /></div><input type="text" name="artFileUrl" placeholder="Paste WeTransfer / Dropbox Link" className="w-full pl-9 rounded-md border-slate-300 text-sm p-2" value={inputs.artFileUrl} onChange={handleInputChange} /></div>
-                  {inputs.artFileUrl && (<div className="bg-indigo-50 text-indigo-700 text-xs p-2 rounded flex items-center gap-2"><CheckCircle size={14} /> File Link Ready</div>)}
+                  {inputs.artFileUrl && (<div className="bg-indigo-50 text-indigo-700 text-xs p-2 rounded flex items-center gap-2 truncate"><CheckCircle size={14} className="flex-shrink-0" /> <span className="truncate">{inputs.artFileUrl}</span></div>)}
                   {uploadError && <p className="text-red-500 text-xs mt-1">{uploadError}</p>}
                </div>
             </div>
@@ -702,21 +703,113 @@ export default function App() {
           <div className="lg:col-span-7 space-y-6">
             {calculationResult && (
               <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-                <div className="bg-blue-600 p-4 text-white flex justify-between items-center"><h3 className="font-semibold flex items-center gap-2"><DollarSign size={20} /> Customer Quote</h3><span className="text-xs bg-blue-700 px-2 py-1 rounded text-blue-100">Valid for 30 days</span></div>
-                <div className="p-6">
-                  <div className="flex justify-between items-end mb-6 border-b border-slate-100 pb-6">
-                    <div><p className="text-sm text-slate-500 uppercase tracking-wider font-semibold">Total Project Cost</p><h2 className="text-4xl font-bold text-slate-900 mt-1">{formatCurrency(calculationResult.totalSellPrice)}</h2></div>
-                    <div className="text-right"><p className="text-sm text-slate-500">Price per unit</p><p className="text-xl font-semibold text-slate-700">{formatCurrency(calculationResult.unitPrice)} <span className="text-sm font-normal text-slate-400">/ea</span></p></div>
-                  </div>
-                  <div className="mt-8 pt-6 border-t border-slate-100">
-                    <button onClick={handleSubmit} disabled={(!HARDCODED_SUBMIT_WEBHOOK && !config.webhookUrl) || submitStatus === 'sending' || submitStatus === 'success'} className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${submitStatus === 'success' ? 'bg-green-600 text-white' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>
-                      {submitStatus === 'idle' && <><Send size={18} /> Submit Order {customer.name && `for ${customer.name}`}</>}
-                      {submitStatus === 'sending' && <><Loader size={18} className="animate-spin" /> Sending...</>}
-                      {submitStatus === 'success' && <><Check size={18} /> Sent!</>}
-                      {submitStatus === 'error' && "Error - Check Webhook"}
-                    </button>
-                  </div>
-                </div>
+                {/* 🟢 VIEW MODE: SALES QUOTE */}
+                {viewMode === 'quote' && (
+                  <>
+                    <div className="bg-blue-600 p-4 text-white flex justify-between items-center">
+                      <h3 className="font-semibold flex items-center gap-2"><DollarSign size={20} /> Customer Quote</h3>
+                      <span className="text-xs bg-blue-700 px-2 py-1 rounded text-blue-100">Valid for 30 days</span>
+                    </div>
+                    <div className="p-6">
+                      <div className="flex justify-between items-end mb-6 border-b border-slate-100 pb-6">
+                        <div>
+                          <p className="text-sm text-slate-500 uppercase tracking-wider font-semibold">Total Project Cost</p>
+                          <h2 className="text-4xl font-bold text-slate-900 mt-1">{formatCurrency(calculationResult.totalSellPrice)}</h2>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-slate-500">Price per unit</p>
+                          <p className="text-xl font-semibold text-slate-700">{formatCurrency(calculationResult.unitPrice)} <span className="text-sm font-normal text-slate-400">/ea</span></p>
+                        </div>
+                      </div>
+                      
+                      {/* Quote Specs Summary */}
+                      <div className="grid grid-cols-2 gap-4 mb-6 text-sm text-slate-600">
+                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Dimensions</span> <span className="font-mono font-bold">{inputs.width}" x {inputs.height}"</span></div>
+                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Material</span> <span className="font-bold">{inputs.material}</span></div>
+                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Quantity</span> <span className="font-bold">{inputs.quantity}</span></div>
+                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Sides</span> <span className="font-bold">{inputs.sides === '2' ? 'Double' : 'Single'}</span></div>
+                      </div>
+
+                      <div className="mt-8 pt-6 border-t border-slate-100">
+                        <button onClick={handleSubmit} disabled={(!HARDCODED_SUBMIT_WEBHOOK && !config.webhookUrl) || submitStatus === 'sending' || submitStatus === 'success'} className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${submitStatus === 'success' ? 'bg-green-600 text-white' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>
+                          {submitStatus === 'idle' && <><Send size={18} /> Submit Order {customer.name && `for ${customer.name}`}</>}
+                          {submitStatus === 'sending' && <><Loader size={18} className="animate-spin" /> Sending...</>}
+                          {submitStatus === 'success' && <><Check size={18} /> Sent!</>}
+                          {submitStatus === 'error' && "Error - Check Webhook"}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* 🟢 VIEW MODE: PRODUCTION TICKET (WORK ORDER PREVIEW) */}
+                {viewMode === 'production' && (
+                  <>
+                    <div className="bg-slate-800 p-4 text-white flex justify-between items-center">
+                      <h3 className="font-semibold flex items-center gap-2"><Package size={20} /> Production Ticket Preview</h3>
+                      <span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">INTERNAL USE ONLY</span>
+                    </div>
+                    <div className="p-8 bg-yellow-50/50 h-full">
+                        <div className="border-4 border-slate-900 p-6 rounded-xl bg-white shadow-sm">
+                            <div className="flex justify-between items-start mb-6 border-b-2 border-slate-900 pb-4">
+                                <div>
+                                    <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight">{inputs.jobName || "UNTITLED JOB"}</h2>
+                                    <p className="text-lg font-bold text-slate-600 mt-1">{customer.name || "Walk-in Customer"}</p>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-sm font-bold text-slate-400 uppercase">Date</div>
+                                    <div className="text-xl font-mono font-bold">{new Date().toLocaleDateString()}</div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-12 gap-6 mb-8">
+                                <div className="col-span-8">
+                                    <div className="mb-6">
+                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Material</label>
+                                        <div className="text-2xl font-bold text-slate-900">{inputs.material}</div>
+                                        <div className="text-sm font-bold text-slate-500">{inputs.sides === '2' ? 'DOUBLE SIDED' : 'SINGLE SIDED'}</div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Width</label>
+                                            <div className="text-4xl font-black text-slate-900 font-mono">{inputs.width}"</div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Height</label>
+                                            <div className="text-4xl font-black text-slate-900 font-mono">{inputs.height}"</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="col-span-4 bg-slate-100 rounded-lg p-4 flex flex-col items-center justify-center border-2 border-slate-200 border-dashed">
+                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Quantity</label>
+                                    <div className="text-6xl font-black text-slate-900">{inputs.quantity}</div>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 mb-6">
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Finishing & Post-Press</label>
+                                <div className="flex flex-wrap gap-3">
+                                    {inputs.cutType !== 'Rectangular' && <span className="px-3 py-1 bg-pink-100 text-pink-800 font-bold rounded border border-pink-200 flex items-center gap-1"><Scissors size={14} /> CONTOUR CUT</span>}
+                                    {inputs.cutType === 'Rectangular' && <span className="px-3 py-1 bg-slate-200 text-slate-600 font-bold rounded border border-slate-300">RECTANGULAR CUT</span>}
+                                    {inputs.addLamination && <span className="px-3 py-1 bg-blue-100 text-blue-800 font-bold rounded border border-blue-200 flex items-center gap-1"><Layers size={14} /> LAMINATED</span>}
+                                    {inputs.addGrommets && <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold rounded border border-emerald-200 flex items-center gap-1"><CircleIcon /> GROMMETS</span>}
+                                    {!inputs.addLamination && !inputs.addGrommets && inputs.cutType === 'Rectangular' && <span className="text-sm text-slate-400 italic">No extra finishing</span>}
+                                </div>
+                            </div>
+
+                            {inputs.artFileUrl && (
+                                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex items-center gap-3">
+                                    <div className="bg-indigo-100 p-2 rounded"><FileText size={20} className="text-indigo-600" /></div>
+                                    <div className="overflow-hidden">
+                                        <div className="text-xs font-bold text-indigo-400 uppercase">Art File Linked</div>
+                                        <div className="text-xs text-indigo-700 truncate w-full font-mono">{inputs.artFileUrl}</div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -725,3 +818,6 @@ export default function App() {
     </div>
   );
 }
+
+// Helper Icon
+function CircleIcon() { return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /></svg> }
