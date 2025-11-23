@@ -108,7 +108,12 @@ const getDueDateStatus = (dateString) => {
 const getValue = (record, keys, defaultVal = null) => {
     if (!record || !record.fields) return defaultVal;
     for (const key of keys) {
+        // Check exact match
         if (record.fields[key] !== undefined && record.fields[key] !== null) return record.fields[key];
+        // Check lowercase match (slower but safer)
+        const lowerKey = key.toLowerCase();
+        const foundKey = Object.keys(record.fields).find(k => k.toLowerCase() === lowerKey);
+        if (foundKey) return record.fields[foundKey];
     }
     return defaultVal;
 };
@@ -301,7 +306,12 @@ export default function App() {
     const width = parseFloat(inputs.width) || 0;
     const height = parseFloat(inputs.height) || 0;
     const qty = parseInt(inputs.quantity) || 0;
-    if (width === 0 || height === 0 || qty === 0) return null;
+    
+    // 🟢 FALLBACK for UI: If inputs invalid, return placeholder data so UI doesn't crash
+    if (width === 0 || height === 0 || qty === 0) {
+        return { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
+    }
+
     const itemSqFt = (width * height) / 144;
     const totalSqFt = itemSqFt * qty;
     let tierRate = 0;
@@ -478,17 +488,17 @@ export default function App() {
                       </div>
                       {selectedJob.fields.Due_Date && <div className="bg-amber-50 border border-amber-100 rounded p-3 mb-4 flex items-center gap-2 text-amber-800 font-bold text-sm"><Clock size={16} /> Due: {new Date(selectedJob.fields.Due_Date).toLocaleDateString()}</div>}
 
-                      {/* 🟢 NEW: ROBUST JOB DETAILS SUMMARY */}
+                      {/* 🟢 ROBUST JOB DETAILS SUMMARY */}
                       <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
                           {(() => {
                               if (loadingDetails) {
                                 return <div className="col-span-4 text-center py-4 text-slate-400 italic flex items-center justify-center gap-2"><Loader size={16} className="animate-spin" /> Loading specs...</div>;
                               }
-                              // Attempt to get specs from the first line item, falling back to main job record
                               const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
-                              
-                              // Expanded key list to catch more Airtable variations
-                              const mat = getValue(item, ['Material_Type', 'Material', 'material', 'Material Name', 'Substrate'], 'N/A');
+                              // 🟢 DEBUG: Log fields to console to help troubleshoot
+                              console.log('Current Item Fields:', item?.fields);
+
+                              const mat = getValue(item, ['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A');
                               const w = getValue(item, ['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0');
                               const h = getValue(item, ['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0');
                               const q = getValue(item, ['Quantity', 'Qty', 'quantity', 'Count'], '0');
@@ -540,7 +550,6 @@ export default function App() {
       {(viewMode === 'quote' || viewMode === 'production') && (
         <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
           <div className="lg:col-span-5 space-y-6">
-            
             {/* CUSTOMER SEARCH CARD */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-emerald-500">
                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><User size={18} className="text-emerald-600" /> Customer</h2>
@@ -549,7 +558,6 @@ export default function App() {
                ) : (
                   <div className="relative">
                      <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
-                     {/* DROPDOWN RESULTS */}
                      {customerResults.length > 0 && ( 
                         <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-60 overflow-y-auto">
                             {customerResults.map(res => (
