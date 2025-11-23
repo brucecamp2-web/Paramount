@@ -23,7 +23,11 @@ import {
   UserPlus,
   UploadCloud,
   Link as LinkIcon,
-  FileText
+  FileText,
+  Trash2,
+  Calendar,
+  MoreHorizontal,
+  AlertCircle
 } from 'lucide-react';
 
 // --- ⚠️ HARDCODED CONFIGURATION ⚠️ ---
@@ -54,30 +58,34 @@ const DASHBOARD_COLUMNS = [
   { 
     id: 'Quote', 
     label: 'Quote', 
-    match: ['Quote', 'Draft'], // Matches both new 'Quote' and legacy 'Draft'
+    match: ['Quote', 'Draft'], 
     bg: 'bg-slate-100', 
-    text: 'text-slate-600' 
+    text: 'text-slate-600',
+    border: 'border-slate-200'
   },
   { 
     id: 'Prepress', 
     label: 'Prepress', 
-    match: ['Prepress', 'Approved'], // Matches both new 'Prepress' and legacy 'Approved'
+    match: ['Prepress', 'Approved'], 
     bg: 'bg-blue-50', 
-    text: 'text-blue-800' 
+    text: 'text-blue-800',
+    border: 'border-blue-200'
   },
   { 
     id: 'Production', 
     label: 'Production', 
     match: ['Production'], 
     bg: 'bg-indigo-50', 
-    text: 'text-indigo-800' 
+    text: 'text-indigo-800',
+    border: 'border-indigo-200'
   },
   { 
     id: 'Complete', 
     label: 'Complete', 
     match: ['Complete', 'Shipped'], 
     bg: 'bg-emerald-50', 
-    text: 'text-emerald-800' 
+    text: 'text-emerald-800',
+    border: 'border-emerald-200'
   }
 ];
 
@@ -137,6 +145,28 @@ const formatCurrency = (val) => {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0);
 };
 
+// Helper to calculate aging
+const getDaysSince = (dateString) => {
+  if (!dateString) return 0;
+  const diff = new Date() - new Date(dateString);
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+};
+
+// Helper for date urgency styling
+const getDueDateStatus = (dateString) => {
+  if (!dateString) return null;
+  const due = new Date(dateString);
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  
+  const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+  
+  if (diffDays < 0) return { color: 'bg-red-100 text-red-700 border-red-200', label: 'Overdue', icon: AlertCircle };
+  if (diffDays === 0) return { color: 'bg-amber-100 text-amber-700 border-amber-200', label: 'Due Today', icon: Clock };
+  if (diffDays <= 2) return { color: 'bg-amber-50 text-amber-600 border-amber-200', label: 'Due Soon', icon: Clock };
+  return { color: 'bg-slate-100 text-slate-600 border-slate-200', label: due.toLocaleDateString(undefined, {month:'short', day:'numeric'}), icon: Calendar };
+};
+
 export default function App() {
   // --- APP STATE ---
   const [viewMode, setViewMode] = useState('quote'); 
@@ -152,7 +182,8 @@ export default function App() {
     addLamination: false,
     addGrommets: false,
     grommetsPerSign: 4,
-    artFileUrl: ''
+    artFileUrl: '',
+    dueDate: '' // 🟢 NEW: Due Date State
   });
 
   const [customer, setCustomer] = useState({ id: '', name: '' });
@@ -223,10 +254,12 @@ export default function App() {
   const [submitStatus, setSubmitStatus] = useState('idle');
   const [fetchError, setFetchError] = useState(null); 
   const [draggingJobId, setDraggingJobId] = useState(null); 
+  const [dragOverJobId, setDragOverJobId] = useState(null); 
 
   const [selectedJob, setSelectedJob] = useState(null);
   const [jobLineItems, setJobLineItems] = useState([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // --- SEARCH LOGIC (ROBUST) ---
   const searchCustomers = async () => {
@@ -251,7 +284,6 @@ export default function App() {
         if (customerQuery.toLowerCase().includes('acme')) {
              setCustomerResults([{ id: '99', DisplayName: 'Acme Corp (Demo)' }]);
         } else {
-             // If search fails/is unconfigured, we still allow creating a new one, so just show empty + create option
              setCustomerResults([{ id: 'make-setup', DisplayName: '⚠️ Search Webhook needs "Webhook Response" module' }]);
         }
         setIsSearchingCustomer(false);
@@ -276,7 +308,6 @@ export default function App() {
          DisplayName: c.DisplayName || c.name || c.FullyQualifiedName || 'Unknown Name'
       })) : [];
 
-      // 🟢 Logic: Always append "Create New" option, even if results exist (useful for similar names)
       const finalResults = [...normalizedResults];
       if (finalResults.length === 0) {
          if (customerQuery.toLowerCase().includes('acme')) {
@@ -286,7 +317,6 @@ export default function App() {
          }
       }
 
-      // Add the Create Option
       if (customerQuery.trim().length > 1) {
           finalResults.push({ id: 'create-new', DisplayName: `+ Create "${customerQuery}" in QuickBooks`, isAction: true });
       }
@@ -300,7 +330,7 @@ export default function App() {
     }
   };
 
-  // 🟢 NEW: Handle Create Customer
+  // 🟢 Handle Create Customer
   const handleCreateCustomer = async () => {
     const targetUrl = config.createWebhookUrl;
     if (!targetUrl) { alert("Please set the 'Create Customer Webhook URL' in settings below."); return; }
@@ -319,7 +349,6 @@ export default function App() {
         if (rawText === "Accepted") throw new Error("Make returned 'Accepted'. Add a Webhook Response module.");
         
         const data = JSON.parse(rawText);
-        // Expecting { id: "...", DisplayName: "..." }
         const newId = data.id || data.Id || data.ID;
         const newName = data.DisplayName || data.name || data.FullyQualifiedName || customerQuery;
         
@@ -355,7 +384,6 @@ export default function App() {
     const targetUrl = config.uploadWebhookUrl; 
     if (!targetUrl) { alert("Please set the Upload Webhook URL."); return; }
     
-    // 🟢 LIMIT: Increased to 100MB per user request
     if (file.size > 100 * 1024 * 1024) { alert("File > 100MB. Please use a link (WeTransfer/Dropbox) for huge files."); return; }
 
     setIsUploading(true); setUploadError(null);
@@ -365,16 +393,14 @@ export default function App() {
       reader.onload = async () => {
         const base64Data = reader.result.split(',')[1]; 
         
-        // 🟢 SANITIZE & APPEND QUOTE REF: Ensure filename is safe and unique
         const lastDot = file.name.lastIndexOf('.');
         const ext = lastDot === -1 ? '' : file.name.substring(lastDot);
         const originalName = lastDot === -1 ? file.name : file.name.substring(0, lastDot);
         
         const cleanOriginal = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
         const cleanJob = inputs.jobName ? inputs.jobName.replace(/[^a-zA-Z0-9._-]/g, '_') : 'Quote';
-        const quoteRef = Date.now().toString().slice(-6); // Last 6 digits of timestamp as "Quote Number"
+        const quoteRef = Date.now().toString().slice(-6); 
 
-        // Final Format: JobName_FileName_Ref123456.jpg
         const finalName = `${cleanJob}_${cleanOriginal}_Ref${quoteRef}${ext}`;
 
         const response = await fetch(targetUrl, {
@@ -398,30 +424,88 @@ export default function App() {
     } catch (error) { setUploadError("Upload failed."); setIsUploading(false); }
   };
 
-  // --- DRAG & DROP ---
-  const handleDragStart = (e, jobId) => { setDraggingJobId(jobId); e.dataTransfer.effectAllowed = "move"; };
-  const handleDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
-  const handleDrop = async (e, newStatus) => {
+  // --- DRAG & DROP LOGIC (REORDERING) ---
+  const handleDragStart = (e, jobId) => { 
+    setDraggingJobId(jobId); 
+    e.dataTransfer.effectAllowed = "move"; 
+  };
+
+  const handleDragOver = (e, jobId = null) => { 
+    e.preventDefault(); 
+    e.dataTransfer.dropEffect = "move";
+    if (jobId && jobId !== draggingJobId) {
+      setDragOverJobId(jobId);
+    }
+  };
+
+  const handleDrop = async (e, targetStatus, targetJobId = null) => {
     e.preventDefault();
+    setDragOverJobId(null);
     if (!draggingJobId) return;
-    const jobToMove = jobs.find(j => j.id === draggingJobId);
-    // Check against fields.Status
-    if (!jobToMove || jobToMove.fields.Status === newStatus) { setDraggingJobId(null); return; }
-    
-    const updatedJobs = jobs.map(j => j.id === draggingJobId ? { ...j, fields: { ...j.fields, Status: newStatus } } : j);
-    setJobs(updatedJobs);
+
+    const draggedJob = jobs.find(j => j.id === draggingJobId);
+    if (!draggedJob) return;
+
+    let newJobs = [...jobs];
+    const draggedJobIndex = newJobs.findIndex(j => j.id === draggingJobId);
+    newJobs.splice(draggedJobIndex, 1);
+
+    const updatedDraggedJob = {
+        ...draggedJob,
+        fields: {
+            ...draggedJob.fields,
+            Status: targetStatus
+        }
+    };
+
+    if (targetJobId) {
+        const targetIndex = newJobs.findIndex(j => j.id === targetJobId);
+        if (targetIndex !== -1) {
+            newJobs.splice(targetIndex, 0, updatedDraggedJob);
+        } else {
+            newJobs.push(updatedDraggedJob); 
+        }
+    } else {
+        newJobs.push(updatedDraggedJob);
+    }
+
+    setJobs(newJobs);
     setDraggingJobId(null);
-    
-    if (config.airtableBaseId && config.airtablePat) {
+
+    if (config.airtableBaseId && config.airtablePat && draggedJob.fields.Status !== targetStatus) {
       try {
         const tableName = config.airtableTableName || 'Jobs';
         const encodedTable = encodeURIComponent(tableName);
-        await fetch(`https://api.airtable.com/v0/${config.airtableBaseId}/${encodedTable}/${jobToMove.id}`, {
+        await fetch(`https://api.airtable.com/v0/${config.airtableBaseId}/${encodedTable}/${draggedJob.id}`, {
           method: 'PATCH',
           headers: { Authorization: `Bearer ${config.airtablePat}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields: { Status: newStatus }, typecast: true })
+          body: JSON.stringify({ fields: { Status: targetStatus }, typecast: true })
         });
-      } catch (error) { fetchJobs(); }
+      } catch (error) { fetchJobs(); } 
+    }
+  };
+
+  const handleDeleteJob = async () => {
+    if (!selectedJob) return;
+    if (!confirm("Are you sure you want to delete this job? This action cannot be undone.")) return;
+
+    setIsDeleting(true);
+    try {
+        const tableName = config.airtableTableName || 'Jobs';
+        const encodedTable = encodeURIComponent(tableName);
+        const response = await fetch(`https://api.airtable.com/v0/${config.airtableBaseId}/${encodedTable}/${selectedJob.id}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${config.airtablePat}` }
+        });
+
+        if (!response.ok) throw new Error("Delete failed");
+
+        setJobs(prev => prev.filter(j => j.id !== selectedJob.id));
+        setSelectedJob(null);
+    } catch (error) {
+        alert("Failed to delete job: " + error.message);
+    } finally {
+        setIsDeleting(false);
     }
   };
 
@@ -521,6 +605,7 @@ export default function App() {
     const payload = {
       job_name: inputs.jobName || "Untitled Job",
       order_date: new Date().toISOString().split('T')[0],
+      due_date: inputs.dueDate, // 🟢 NEW: Sending Due Date
       total_price: calculationResult.totalSellPrice,
       customer_name: customer.name || "Walk-in", 
       qbo_customer_id: customer.id || "", 
@@ -583,16 +668,54 @@ export default function App() {
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 overflow-x-auto pb-8">
             {DASHBOARD_COLUMNS.map(col => (
-              <div key={col.id} className={`rounded-xl p-4 min-w-[280px] transition-colors ${col.bg}`} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, col.id)}>
-                 <h3 className={`font-bold mb-4 flex items-center gap-2 ${col.text}`}>{col.label}</h3>
-                 <div className="space-y-3">
-                   {jobs.filter(j => col.match.includes(j.fields.Status)).map(job => (
-                      <div key={job.id} draggable onDragStart={(e) => handleDragStart(e, job.id)} onClick={() => handleJobClick(job)} className={`bg-white p-4 rounded-lg shadow-sm border hover:shadow-md transition-all cursor-pointer active:scale-[0.98] relative group`}>
-                        <div className="flex justify-between items-start mb-2"><span className="text-xs font-mono text-slate-400">{job.fields.Job_ID}</span><span className="text-xs font-bold text-slate-600">{formatCurrency(job.fields.Total_Price)}</span></div>
-                        <h4 className="font-bold text-slate-800 text-sm mb-1">{job.fields.Project_Name || "Untitled"}</h4>
-                        <p className="text-xs text-slate-500 mb-2">{job.fields.Client_Name || "Unknown"}</p>
-                      </div>
-                   ))}
+              <div 
+                key={col.id} 
+                className={`rounded-xl p-4 min-w-[280px] transition-colors border-t-4 ${col.border} ${col.bg}`} 
+                onDragOver={(e) => handleDragOver(e)} 
+                onDrop={(e) => handleDrop(e, col.id)}
+              >
+                 <h3 className={`font-bold mb-4 flex items-center gap-2 ${col.text} text-lg`}>{col.label} <span className="bg-white/50 text-xs px-2 py-1 rounded-full">{jobs.filter(j => col.match.includes(j.fields.Status)).length}</span></h3>
+                 <div className="space-y-3 min-h-[200px]">
+                   {jobs.filter(j => col.match.includes(j.fields.Status)).map(job => {
+                      const daysOld = getDaysSince(job.createdTime);
+                      const isArtReady = job.fields.Art_File_Link || false;
+                      // 🟢 Check Due Date
+                      const dueStatus = getDueDateStatus(job.fields.Due_Date);
+                      
+                      return (
+                        <div 
+                            key={job.id} 
+                            draggable 
+                            onDragStart={(e) => handleDragStart(e, job.id)} 
+                            onDragOver={(e) => handleDragOver(e, job.id)}
+                            onDrop={(e) => { e.stopPropagation(); handleDrop(e, col.id, job.id); }}
+                            onClick={() => handleJobClick(job)} 
+                            className={`bg-white p-4 rounded-lg shadow-sm border cursor-pointer relative group transition-all 
+                                ${dragOverJobId === job.id ? 'border-blue-500 border-2 translate-y-1' : 'border-slate-200 hover:shadow-md hover:-translate-y-0.5'}
+                            `}
+                        >
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{job.fields.Job_ID || 'ID...'}</span>
+                                {dueStatus && (
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold flex items-center gap-1 border ${dueStatus.color}`}>
+                                        <dueStatus.icon size={10} /> {dueStatus.label}
+                                    </span>
+                                )}
+                            </div>
+                            
+                            <h4 className="font-bold text-slate-800 text-sm mb-1 leading-tight">{job.fields.Project_Name || "Untitled"}</h4>
+                            <p className="text-xs text-slate-500 mb-3 truncate">{job.fields.Client_Name || "Unknown"}</p>
+                            
+                            <div className="flex items-center justify-between pt-2 border-t border-slate-50 mt-2">
+                                <span className="text-xs font-bold text-slate-600">{formatCurrency(job.fields.Total_Price)}</span>
+                                <div className="flex gap-2">
+                                    {isArtReady && <div className="text-indigo-500" title="Art File Attached"><FileText size={14} /></div>}
+                                    {!dueStatus && daysOld < 2 && <div className="text-emerald-500" title="New Job"><Clock size={14} /></div>}
+                                </div>
+                            </div>
+                        </div>
+                      );
+                   })}
                  </div>
               </div>
             ))}
@@ -606,10 +729,26 @@ export default function App() {
                       <button onClick={() => setSelectedJob(null)} className="text-slate-400 hover:text-white p-1 no-print"><X size={24} /></button>
                    </div>
                    <div className="p-6 overflow-y-auto flex-1">
-                      <div className="flex justify-between items-center mb-6 no-print"><h3 className="font-bold text-slate-700 flex items-center gap-2"><Layers size={20} className="text-blue-600" /> Production Line Items</h3><button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2"><Printer size={14} /> Print Traveler</button></div>
+                      <div className="flex justify-between items-center mb-6 no-print">
+                          <h3 className="font-bold text-slate-700 flex items-center gap-2"><Layers size={20} className="text-blue-600" /> Production Line Items</h3>
+                          <div className="flex gap-2">
+                            <button onClick={handleDeleteJob} disabled={isDeleting} className="text-xs bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-2 rounded flex items-center gap-2 transition-colors">
+                                {isDeleting ? <Loader size={14} className="animate-spin" /> : <Trash2 size={14} />} Delete Job
+                            </button>
+                            <button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2"><Printer size={14} /> Print Traveler</button>
+                          </div>
+                      </div>
+                      {/* 🟢 Show Due Date in Modal if available */}
+                      {selectedJob.fields.Due_Date && (
+                          <div className="bg-amber-50 border border-amber-100 rounded p-3 mb-4 flex items-center gap-2 text-amber-800 font-bold text-sm">
+                              <Clock size={16} /> Due: {new Date(selectedJob.fields.Due_Date).toLocaleDateString()}
+                          </div>
+                      )}
+
                       <div className="hidden print:block mb-4"><h3 className="text-lg font-bold border-b-2 border-black pb-1">WORK ORDER</h3></div>
                       {loadingDetails ? <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching...</p></div> : (
                          <div className="space-y-6">
+                            {jobLineItems.length === 0 && <div className="text-center py-8 text-slate-400 italic">No line items found for this job.</div>}
                             {jobLineItems.map((item, idx) => {
                                // Added extra safety here for the parse inside the map
                                let specs = {}; 
@@ -686,6 +825,9 @@ export default function App() {
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Settings size={18} className="text-blue-600" /> Job Specs</h2>
               <div className="space-y-4">
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Job / Project Name</label><input type="text" name="jobName" placeholder="e.g. Fall Event Signs" value={inputs.jobName} onChange={handleInputChange} className="w-full rounded-md border-slate-300 shadow-sm border p-2" /></div>
+                {/* 🟢 NEW: Due Date Input */}
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Due Date</label><input type="date" name="dueDate" value={inputs.dueDate} onChange={handleInputChange} className="w-full rounded-md border-slate-300 shadow-sm border p-2" /></div>
+                
                 <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-slate-700 mb-1">Width (in)</label><input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div><div><label className="block text-sm font-medium text-slate-700 mb-1">Height (in)</label><input type="number" name="height" value={inputs.height} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label><input type="number" name="quantity" value={inputs.quantity} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Material</label><select name="material" value={inputs.material} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2">{Object.values(MATERIALS).map(m => (<option key={m.key} value={m.name}>{m.name}</option>))}</select></div>
@@ -763,6 +905,10 @@ export default function App() {
                          <div className="flex justify-between border-b border-slate-50 pb-2"><span>Material</span> <span className="font-bold">{inputs.material}</span></div>
                          <div className="flex justify-between border-b border-slate-50 pb-2"><span>Quantity</span> <span className="font-bold">{inputs.quantity}</span></div>
                          <div className="flex justify-between border-b border-slate-50 pb-2"><span>Sides</span> <span className="font-bold">{inputs.sides === '2' ? 'Double' : 'Single'}</span></div>
+                         {/* 🟢 Show Due Date if set */}
+                         {inputs.dueDate && (
+                            <div className="flex justify-between border-b border-slate-50 pb-2 text-amber-600"><span>Due Date</span> <span className="font-bold">{new Date(inputs.dueDate).toLocaleDateString()}</span></div>
+                         )}
                       </div>
 
                       <div className="mt-8 pt-6 border-t border-slate-100">
@@ -792,8 +938,9 @@ export default function App() {
                                     <p className="text-lg font-bold text-slate-600 mt-1">{customer.name || "Walk-in Customer"}</p>
                                 </div>
                                 <div className="text-right">
-                                    <div className="text-sm font-bold text-slate-400 uppercase">Date</div>
-                                    <div className="text-xl font-mono font-bold">{new Date().toLocaleDateString()}</div>
+                                    <div className="text-sm font-bold text-slate-400 uppercase">Due Date</div>
+                                    {/* 🟢 Highlighted Due Date on Ticket */}
+                                    <div className="text-xl font-mono font-bold text-red-600">{inputs.dueDate ? new Date(inputs.dueDate).toLocaleDateString() : "N/A"}</div>
                                 </div>
                             </div>
 
