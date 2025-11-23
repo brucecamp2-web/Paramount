@@ -143,11 +143,24 @@ export default function App() {
   const [isCreatingCustomer, setIsCreatingCustomer] = useState(false); 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
-  const [showDebug, setShowDebug] = useState(false); // 🟢 New Debug State
+  const [showDebug, setShowDebug] = useState(false); 
+  const [showSettings, setShowSettings] = useState(false); // 🟢 New Settings Toggle
 
   const [config, setConfig] = useState(() => {
-    let loadedConfig = { webhookUrl: '', searchWebhookUrl: '', createWebhookUrl: '', uploadWebhookUrl: '', airtableBaseId: '', airtablePat: '', airtableTableName: 'Jobs', airtableLineItemsName: 'Line Items' };
-    try { if (typeof window !== 'undefined') { const get = (k) => localStorage.getItem(k) || ''; loadedConfig = { webhookUrl: get('paramount_webhook_url'), searchWebhookUrl: get('paramount_search_webhook_url'), createWebhookUrl: get('paramount_create_webhook_url'), uploadWebhookUrl: get('paramount_upload_webhook_url'), airtableBaseId: get('paramount_at_base'), airtablePat: get('paramount_at_pat'), airtableTableName: get('paramount_at_table') || 'Jobs', airtableLineItemsName: get('paramount_at_lines') || 'Line Items' }; } } catch (e) {}
+    let loadedConfig = { 
+        webhookUrl: '', 
+        searchWebhookUrl: '', 
+        createWebhookUrl: '', 
+        uploadWebhookUrl: '', 
+        airtableBaseId: '', 
+        airtablePat: '', 
+        airtableTableName: 'Jobs', 
+        airtableLineItemsName: 'Line Items',
+        airtableLinkedFieldName: 'Job_Link' // 🟢 New Config for Link Column
+    };
+    
+    try { if (typeof window !== 'undefined') { const get = (k) => localStorage.getItem(k) || ''; loadedConfig = { webhookUrl: get('paramount_webhook_url'), searchWebhookUrl: get('paramount_search_webhook_url'), createWebhookUrl: get('paramount_create_webhook_url'), uploadWebhookUrl: get('paramount_upload_webhook_url'), airtableBaseId: get('paramount_at_base'), airtablePat: get('paramount_at_pat'), airtableTableName: get('paramount_at_table') || 'Jobs', airtableLineItemsName: get('paramount_at_lines') || 'Line Items', airtableLinkedFieldName: get('paramount_at_link_col') || 'Job_Link' }; } } catch (e) {}
+    
     if (HARDCODED_SUBMIT_WEBHOOK) loadedConfig.webhookUrl = HARDCODED_SUBMIT_WEBHOOK;
     if (HARDCODED_SEARCH_WEBHOOK) loadedConfig.searchWebhookUrl = HARDCODED_SEARCH_WEBHOOK;
     if (HARDCODED_CREATE_WEBHOOK) loadedConfig.createWebhookUrl = HARDCODED_CREATE_WEBHOOK; 
@@ -167,6 +180,7 @@ export default function App() {
         if (!HARDCODED_AIRTABLE_PAT) localStorage.setItem('paramount_at_pat', config.airtablePat);
         localStorage.setItem('paramount_at_table', config.airtableTableName);
         localStorage.setItem('paramount_at_lines', config.airtableLineItemsName);
+        localStorage.setItem('paramount_at_link_col', config.airtableLinkedFieldName); // 🟢 Persist
     } } catch (e) { }
   }, [config]);
 
@@ -366,9 +380,10 @@ export default function App() {
   const fetchLineItems = async (jobRecordId) => {
     setLoadingDetails(true); setJobLineItems([]);
     const tableName = config.airtableLineItemsName || 'Line Items'; const baseId = config.airtableBaseId; const pat = config.airtablePat;
+    const linkedField = config.airtableLinkedFieldName || 'Job_Link'; // 🟢 Use dynamic linked field name
     try {
       const encodedTable = encodeURIComponent(tableName);
-      const filterFormula = `filterByFormula=${encodeURIComponent(`{Job_Link}='${jobRecordId}'`)}`;
+      const filterFormula = `filterByFormula=${encodeURIComponent(`{${linkedField}}='${jobRecordId}'`)}`;
       const response = await fetch(`https://api.airtable.com/v0/${baseId}/${encodedTable}?${filterFormula}`, { headers: { Authorization: `Bearer ${pat}` } });
       if (response.ok) { const data = await response.json(); setJobLineItems(data.records); }
     } catch (error) { console.error(error); } finally { setLoadingDetails(false); }
@@ -424,20 +439,27 @@ export default function App() {
 
       {viewMode === 'dashboard' && (
         <main className="max-w-7xl mx-auto relative no-print">
-          {(!config.airtableBaseId || !config.airtablePat) ? (
+          {(!config.airtableBaseId || !config.airtablePat || showSettings) ? (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6">
                {/* Config Inputs */}
+               <div className="flex justify-between items-center mb-2"><h3 className="font-bold text-slate-600">Connection Settings</h3>{showSettings && <button onClick={() => setShowSettings(false)} className="text-xs text-slate-400 underline">Close</button>}</div>
                <div className="flex flex-col md:flex-row gap-4 items-end mb-4">
                 <div className="flex-1 w-full"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Airtable Base ID</label><input type="text" name="airtableBaseId" value={config.airtableBaseId} onChange={handleConfigChange} placeholder="appXXXXXXXXXXXXXX" className="w-full text-sm border-slate-300 rounded-md font-mono" /></div>
                 <div className="flex-1 w-full"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Personal Access Token</label><input type="password" name="airtablePat" value={config.airtablePat} onChange={handleConfigChange} placeholder="patXXXXXXXXXXXXXX..." className="w-full text-sm border-slate-300 rounded-md font-mono" /></div>
-                <button onClick={fetchJobs} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 h-10">{loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh</button>
+                <button onClick={() => { setShowSettings(false); fetchJobs(); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 h-10">{loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh</button>
                </div>
-               <div className="pt-2 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+               <div className="pt-2 border-t border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div><label className="text-xs text-slate-400 mb-1 block">Jobs Table Name</label><input type="text" name="airtableTableName" value={config.airtableTableName} onChange={handleConfigChange} placeholder="Jobs" className="w-full text-xs border-slate-200 rounded-md text-slate-500" /></div>
                   <div><label className="text-xs text-slate-400 mb-1 block">Line Items Table Name</label><input type="text" name="airtableLineItemsName" value={config.airtableLineItemsName} onChange={handleConfigChange} placeholder="Line Items" className="w-full text-xs border-slate-200 rounded-md text-slate-500" /></div>
+                  <div><label className="text-xs text-slate-400 mb-1 block">Column Linking to Jobs</label><input type="text" name="airtableLinkedFieldName" value={config.airtableLinkedFieldName} onChange={handleConfigChange} placeholder="Job_Link (exact name)" className="w-full text-xs border-slate-200 rounded-md text-slate-500" /></div>
                </div>
             </div>
-          ) : ( <div className="flex justify-end mb-4"><button onClick={fetchJobs} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2">{loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh Board</button></div> )}
+          ) : ( 
+            <div className="flex justify-end mb-4 gap-2">
+                <button onClick={() => setShowSettings(true)} className="bg-white border border-slate-200 text-slate-400 hover:bg-slate-50 p-2 rounded-md"><Settings size={16} /></button>
+                <button onClick={fetchJobs} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2">{loadingJobs ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh Board</button>
+            </div> 
+          )}
 
           {fetchError && <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-md shadow-sm"><div className="flex items-center"><AlertTriangle className="text-red-600 mr-3" size={20} /><span className="text-red-700 font-medium">{fetchError}</span></div></div>}
 
@@ -563,6 +585,7 @@ export default function App() {
                                   <p className="text-white font-bold mb-2 border-b border-slate-700 pb-1">DEBUGGER</p>
                                   <p>Job ID: {selectedJob.id}</p>
                                   <p>Line Items Found: {jobLineItems.length}</p>
+                                  <p>Link Column Used: {config.airtableLinkedFieldName}</p>
                                   <p className="mt-2 text-yellow-300">Raw Job Fields:</p>
                                   <pre>{JSON.stringify(selectedJob.fields, null, 2)}</pre>
                                   {jobLineItems.length > 0 && (
@@ -585,7 +608,6 @@ export default function App() {
       {(viewMode === 'quote' || viewMode === 'production') && (
         <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
           <div className="lg:col-span-5 space-y-6">
-            
             {/* CUSTOMER SEARCH CARD */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-emerald-500">
                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><User size={18} className="text-emerald-600" /> Customer</h2>
