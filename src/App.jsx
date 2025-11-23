@@ -18,7 +18,6 @@ import {
   Clock,
   Database,
   X,
-  GripVertical,
   Search,
   User,
   UploadCloud,
@@ -26,10 +25,12 @@ import {
 } from 'lucide-react';
 
 // --- ⚠️ HARDCODED CONFIGURATION ⚠️ ---
+// These values will override any local settings
 const HARDCODED_SUBMIT_WEBHOOK = "https://hook.us2.make.com/mnsu9apt7zhxfjibn3fm6fyy1qrlotlh"; 
 const HARDCODED_SEARCH_WEBHOOK = "https://hook.us2.make.com/1eld4uno29hvl6fifvmw0e4s7ig54was";
+const HARDCODED_UPLOAD_WEBHOOK = ""; 
 
-// ✅ Credentials
+// ✅ Credentials (Hardcoded for stability)
 const HARDCODED_AIRTABLE_BASE_ID = "app3QrZgktGpCp21l"; 
 const HARDCODED_AIRTABLE_PAT = "pateL0HJlHko5bI1x.53da74b4f542f8ac101af18d4fa4ba87666faebb4835b2c967bc9492c2d95588";     
 
@@ -102,6 +103,7 @@ const formatCurrency = (val) => {
 };
 
 export default function App() {
+  // --- APP STATE ---
   const [viewMode, setViewMode] = useState('quote'); 
   
   const [inputs, setInputs] = useState({
@@ -129,38 +131,50 @@ export default function App() {
 
   // --- SAFE CONFIG INITIALIZATION ---
   const [config, setConfig] = useState(() => {
-    const defaults = { 
+    // 1. Default empty values
+    let loadedConfig = { 
         webhookUrl: '', searchWebhookUrl: '', uploadWebhookUrl: '', 
         airtableBaseId: '', airtablePat: '', airtableTableName: 'Jobs', airtableLineItemsName: 'Line Items' 
     };
     
     try {
+        // 2. Try loading from LocalStorage if available
         if (typeof window !== 'undefined') {
-            return {
-                webhookUrl: HARDCODED_SUBMIT_WEBHOOK || localStorage.getItem('paramount_webhook_url') || '',
-                searchWebhookUrl: HARDCODED_SEARCH_WEBHOOK || localStorage.getItem('paramount_search_webhook_url') || '',
-                uploadWebhookUrl: localStorage.getItem('paramount_upload_webhook_url') || '',
-                airtableBaseId: HARDCODED_AIRTABLE_BASE_ID || localStorage.getItem('paramount_at_base') || '',
-                airtablePat: HARDCODED_AIRTABLE_PAT || localStorage.getItem('paramount_at_pat') || '',
-                airtableTableName: localStorage.getItem('paramount_at_table') || 'Jobs',
-                airtableLineItemsName: localStorage.getItem('paramount_at_lines') || 'Line Items'
+            const get = (k) => localStorage.getItem(k) || '';
+            loadedConfig = {
+                webhookUrl: get('paramount_webhook_url'),
+                searchWebhookUrl: get('paramount_search_webhook_url'),
+                uploadWebhookUrl: get('paramount_upload_webhook_url'),
+                airtableBaseId: get('paramount_at_base'),
+                airtablePat: get('paramount_at_pat'),
+                airtableTableName: get('paramount_at_table') || 'Jobs',
+                airtableLineItemsName: get('paramount_at_lines') || 'Line Items'
             };
         }
     } catch (e) {
-        console.warn("LocalStorage access denied", e);
+        console.warn("Storage access failed, using defaults.");
     }
-    return defaults;
+
+    // 3. OVERRIDE with Hardcoded values if they exist (Safety Net)
+    if (HARDCODED_SUBMIT_WEBHOOK) loadedConfig.webhookUrl = HARDCODED_SUBMIT_WEBHOOK;
+    if (HARDCODED_SEARCH_WEBHOOK) loadedConfig.searchWebhookUrl = HARDCODED_SEARCH_WEBHOOK;
+    if (HARDCODED_UPLOAD_WEBHOOK) loadedConfig.uploadWebhookUrl = HARDCODED_UPLOAD_WEBHOOK;
+    if (HARDCODED_AIRTABLE_BASE_ID) loadedConfig.airtableBaseId = HARDCODED_AIRTABLE_BASE_ID;
+    if (HARDCODED_AIRTABLE_PAT) loadedConfig.airtablePat = HARDCODED_AIRTABLE_PAT;
+
+    return loadedConfig;
   });
 
-  // Persist Config Safely
+  // Persist Config (Only for fields that aren't hardcoded)
   useEffect(() => {
     try {
         if (typeof window !== 'undefined') {
             if (!HARDCODED_SUBMIT_WEBHOOK) localStorage.setItem('paramount_webhook_url', config.webhookUrl);
             if (!HARDCODED_SEARCH_WEBHOOK) localStorage.setItem('paramount_search_webhook_url', config.searchWebhookUrl);
-            if (config.uploadWebhookUrl) localStorage.setItem('paramount_upload_webhook_url', config.uploadWebhookUrl);
+            if (!HARDCODED_UPLOAD_WEBHOOK && config.uploadWebhookUrl) localStorage.setItem('paramount_upload_webhook_url', config.uploadWebhookUrl);
             if (!HARDCODED_AIRTABLE_BASE_ID) localStorage.setItem('paramount_at_base', config.airtableBaseId);
             if (!HARDCODED_AIRTABLE_PAT) localStorage.setItem('paramount_at_pat', config.airtablePat);
+            
             localStorage.setItem('paramount_at_table', config.airtableTableName);
             localStorage.setItem('paramount_at_lines', config.airtableLineItemsName);
         }
@@ -179,7 +193,7 @@ export default function App() {
 
   // --- SEARCH LOGIC ---
   const searchCustomers = async () => {
-    const targetUrl = HARDCODED_SEARCH_WEBHOOK || config.searchWebhookUrl;
+    const targetUrl = config.searchWebhookUrl;
     if (!targetUrl) { alert("Please add your Customer Search Webhook URL."); return; }
     if (!customerQuery) return;
 
@@ -187,8 +201,6 @@ export default function App() {
     setCustomerResults([]);
 
     try {
-      console.log("Sending search for:", customerQuery);
-      
       const response = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -217,14 +229,13 @@ export default function App() {
       setCustomerResults(normalizedResults);
       
       if (normalizedResults.length === 0) {
-         // Fallback for demo if empty
          if (customerQuery.toLowerCase().includes('acme')) {
             setCustomerResults([{ id: '99', DisplayName: 'Acme Corp (Demo)' }]);
          }
       }
 
     } catch (error) {
-      console.error("Search Critical Failure:", error);
+      console.error("Search Error:", error);
       setCustomerResults([{ id: 'demo-1', DisplayName: `Error: Check Console` }]);
     } finally {
       setIsSearchingCustomer(false);
@@ -291,7 +302,7 @@ export default function App() {
   // --- CALCULATOR ---
   const calculationResult = useMemo(() => {
     const matData = MATERIALS[inputs.material];
-    if (!matData) return null; // Safety Check
+    if (!matData) return null;
 
     const width = parseFloat(inputs.width) || 0;
     const height = parseFloat(inputs.height) || 0;
@@ -345,9 +356,10 @@ export default function App() {
   // --- FETCH JOBS ---
   const fetchJobs = async () => {
     setFetchError(null);
-    const baseId = HARDCODED_AIRTABLE_BASE_ID || config.airtableBaseId;
-    const pat = HARDCODED_AIRTABLE_PAT || config.airtablePat;
+    const baseId = config.airtableBaseId;
+    const pat = config.airtablePat;
     if (!baseId || !pat) return;
+    
     const tableName = config.airtableTableName || 'Jobs';
     setLoadingJobs(true);
     try {
@@ -363,8 +375,8 @@ export default function App() {
     setLoadingDetails(true);
     setJobLineItems([]);
     const tableName = config.airtableLineItemsName || 'Line Items';
-    const baseId = HARDCODED_AIRTABLE_BASE_ID || config.airtableBaseId;
-    const pat = HARDCODED_AIRTABLE_PAT || config.airtablePat;
+    const baseId = config.airtableBaseId;
+    const pat = config.airtablePat;
     try {
       const encodedTable = encodeURIComponent(tableName);
       const filterFormula = `filterByFormula=${encodeURIComponent(`{Job_Link}='${jobRecordId}'`)}`;
@@ -377,7 +389,7 @@ export default function App() {
 
   // --- SUBMIT ---
   const handleSubmit = async () => {
-    const targetUrl = HARDCODED_SUBMIT_WEBHOOK || config.webhookUrl;
+    const targetUrl = config.webhookUrl;
     if (!targetUrl) { alert("Please enter a Submit Webhook URL."); return; }
     setSubmitStatus('sending');
     const payload = {
@@ -401,12 +413,15 @@ export default function App() {
     };
     try {
       const response = await fetch(targetUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (response.ok) { setSubmitStatus('success'); setTimeout(() => setSubmitStatus('idle'), 3000); if (HARDCODED_AIRTABLE_BASE_ID || config.airtableBaseId) fetchJobs(); setCustomer({ id: '', name: '' }); setInputs(prev => ({...prev, artFileUrl: ''})); } else { setSubmitStatus('error'); }
+      if (response.ok) { setSubmitStatus('success'); setTimeout(() => setSubmitStatus('idle'), 3000); if (config.airtableBaseId) fetchJobs(); setCustomer({ id: '', name: '' }); setInputs(prev => ({...prev, artFileUrl: ''})); } else { setSubmitStatus('error'); }
     } catch (error) { setSubmitStatus('error'); }
   };
 
   const handleInputChange = (e) => { const { name, value, type, checked } = e.target; setInputs(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value })); };
   const handleConfigChange = (e) => { const { name, value } = e.target; setConfig(prev => ({ ...prev, [name]: value })); };
+
+  // DEBUG
+  console.log("App Rendered. Config:", { hasBase: !!config.airtableBaseId, hasPat: !!config.airtablePat });
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
@@ -423,7 +438,7 @@ export default function App() {
 
       {viewMode === 'dashboard' && (
         <main className="max-w-7xl mx-auto relative no-print">
-          {(!HARDCODED_AIRTABLE_BASE_ID || !HARDCODED_AIRTABLE_PAT) ? (
+          {(!config.airtableBaseId || !config.airtablePat) ? (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6">
                <div className="flex flex-col md:flex-row gap-4 items-end mb-4">
                 <div className="flex-1 w-full"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Airtable Base ID</label><input type="text" name="airtableBaseId" value={config.airtableBaseId} onChange={handleConfigChange} placeholder="appXXXXXXXXXXXXXX" className="w-full text-sm border-slate-300 rounded-md font-mono" /></div>
@@ -497,7 +512,7 @@ export default function App() {
         <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
           <div className="lg:col-span-5 space-y-6">
             
-            {/* CUSTOMER SEARCH */}
+            {/* CUSTOMER SEARCH CARD */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-emerald-500">
                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><User size={18} className="text-emerald-600" /> Customer</h2>
                {customer.name ? (
@@ -537,41 +552,15 @@ export default function App() {
             {/* ART FILES (NEW) */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-indigo-500">
                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><UploadCloud size={18} className="text-indigo-600" /> Art Files</h2>
-               
                <div className="space-y-3">
                   {/* 1. Direct Upload */}
                   <div className="border-2 border-dashed border-indigo-100 rounded-lg p-4 text-center hover:bg-indigo-50 transition-colors cursor-pointer relative">
                      <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} disabled={isUploading} />
-                     {isUploading ? (
-                        <div className="flex flex-col items-center justify-center text-indigo-600"><Loader size={24} className="animate-spin mb-2" /><span className="text-sm font-medium">Uploading to Drive...</span></div>
-                     ) : (
-                        <div className="flex flex-col items-center justify-center text-indigo-400">
-                           <UploadCloud size={24} className="mb-2" />
-                           <span className="text-sm font-medium text-indigo-600">Click to Upload File</span>
-                           <span className="text-[10px] text-slate-400 mt-1">Max 8MB (Logos, Proofs)</span>
-                        </div>
-                     )}
+                     {isUploading ? (<div className="flex flex-col items-center justify-center text-indigo-600"><Loader size={24} className="animate-spin mb-2" /><span className="text-sm font-medium">Uploading to Drive...</span></div>) : (<div className="flex flex-col items-center justify-center text-indigo-400"><UploadCloud size={24} className="mb-2" /><span className="text-sm font-medium text-indigo-600">Click to Upload File</span><span className="text-[10px] text-slate-400 mt-1">Max 8MB (Logos, Proofs)</span></div>)}
                   </div>
-
                   {/* 2. Paste Link */}
-                  <div className="relative">
-                     <div className="absolute left-3 top-2.5 text-slate-400"><LinkIcon size={16} /></div>
-                     <input 
-                        type="text" 
-                        name="artFileUrl"
-                        placeholder="Paste WeTransfer / Dropbox Link" 
-                        className="w-full pl-9 rounded-md border-slate-300 text-sm p-2"
-                        value={inputs.artFileUrl}
-                        onChange={handleInputChange}
-                     />
-                  </div>
-                  
-                  {/* Success Indicator */}
-                  {inputs.artFileUrl && (
-                     <div className="bg-indigo-50 text-indigo-700 text-xs p-2 rounded flex items-center gap-2">
-                        <CheckCircle size={14} /> File Link Ready
-                     </div>
-                  )}
+                  <div className="relative"><div className="absolute left-3 top-2.5 text-slate-400"><LinkIcon size={16} /></div><input type="text" name="artFileUrl" placeholder="Paste WeTransfer / Dropbox Link" className="w-full pl-9 rounded-md border-slate-300 text-sm p-2" value={inputs.artFileUrl} onChange={handleInputChange} /></div>
+                  {inputs.artFileUrl && (<div className="bg-indigo-50 text-indigo-700 text-xs p-2 rounded flex items-center gap-2"><CheckCircle size={14} /> File Link Ready</div>)}
                   {uploadError && <p className="text-red-500 text-xs mt-1">{uploadError}</p>}
                </div>
             </div>
