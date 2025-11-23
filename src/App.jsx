@@ -111,7 +111,7 @@ const getValue = (record, keys, defaultVal = null) => {
     for (const key of keys) {
         // Check exact match
         if (record.fields[key] !== undefined && record.fields[key] !== null) return record.fields[key];
-        // Check lowercase match (slower but safer)
+        // Check lowercase match
         const lowerKey = key.toLowerCase();
         const foundKey = Object.keys(record.fields).find(k => k.toLowerCase() === lowerKey);
         if (foundKey) return record.fields[foundKey];
@@ -122,7 +122,7 @@ const getValue = (record, keys, defaultVal = null) => {
 // Helper Component for the Ticket UI
 const ProductionTicketCard = ({ data }) => {
     return (
-        <div className="border-4 border-slate-900 p-6 rounded-xl bg-white shadow-sm">
+        <div className="border-4 border-slate-900 p-6 rounded-xl bg-white shadow-sm text-left">
             <div className="flex justify-between items-start mb-6 border-b-2 border-slate-900 pb-4">
                 <div>
                     <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight">{data.jobName || "UNTITLED JOB"}</h2>
@@ -442,19 +442,51 @@ export default function App() {
     } catch (error) { setFetchError(error.message); } finally { setLoadingJobs(false); }
   };
 
-  const fetchLineItems = async (jobRecordId) => {
+  // 🟢 SMART FETCH LINE ITEMS: Uses IDs if available, else falls back to formula
+  const fetchLineItems = async (job) => {
     setLoadingDetails(true); setJobLineItems([]);
-    const tableName = config.airtableLineItemsName || 'Line Items'; const baseId = config.airtableBaseId; const pat = config.airtablePat;
-    const linkedField = config.airtableLinkedFieldName || 'Job_Link'; // 🟢 Use dynamic linked field name
+    const tableName = config.airtableLineItemsName || 'Line Items'; 
+    const baseId = config.airtableBaseId; 
+    const pat = config.airtablePat;
+    const linkedField = config.airtableLinkedFieldName || 'Job_Link';
+    const encodedTable = encodeURIComponent(tableName);
+
     try {
-      const encodedTable = encodeURIComponent(tableName);
-      const filterFormula = `filterByFormula=${encodeURIComponent(`{${linkedField}}='${jobRecordId}'`)}`;
-      const response = await fetch(`https://api.airtable.com/v0/${baseId}/${encodedTable}?${filterFormula}`, { headers: { Authorization: `Bearer ${pat}` } });
-      if (response.ok) { const data = await response.json(); setJobLineItems(data.records); }
-    } catch (error) { console.error(error); } finally { setLoadingDetails(false); }
+        let url = '';
+        
+        // 🟢 STRATEGY 1: If Job has Linked Record IDs (Direct Array), use filterByFormula with RECORD_ID()
+        // Look for standard "Line Items" field or any array of strings
+        const possibleLinkCols = ['Line Items', 'LineItems', 'Items', 'Line_Items'];
+        let linkedIds = [];
+        for (const key of possibleLinkCols) {
+            if (Array.isArray(job.fields[key])) {
+                linkedIds = job.fields[key];
+                break;
+            }
+        }
+
+        if (linkedIds.length > 0) {
+            // Construct formula: OR(RECORD_ID()='rec1', RECORD_ID()='rec2')
+            const formula = `OR(${linkedIds.map(id => `RECORD_ID()='${id}'`).join(',')})`;
+            url = `https://api.airtable.com/v0/${baseId}/${encodedTable}?filterByFormula=${encodeURIComponent(formula)}`;
+            console.log("Fetching via IDs:", formula);
+        } else {
+            // 🟢 STRATEGY 2: Fallback to old "Reverse Lookup" method
+            const filterFormula = `filterByFormula=${encodeURIComponent(`{${linkedField}}='${job.id}'`)}`;
+            url = `https://api.airtable.com/v0/${baseId}/${encodedTable}?${filterFormula}`;
+            console.log("Fetching via Column Link:", linkedField);
+        }
+
+        const response = await fetch(url, { headers: { Authorization: `Bearer ${pat}` } });
+        if (response.ok) { 
+            const data = await response.json(); 
+            setJobLineItems(data.records); 
+        }
+    } catch (error) { console.error("Fetch Line Items Error:", error); } finally { setLoadingDetails(false); }
   };
 
-  const handleJobClick = (job) => { setSelectedJob(job); fetchLineItems(job.id); };
+  // 🟢 Update handleJobClick to pass the whole job object
+  const handleJobClick = (job) => { setSelectedJob(job); fetchLineItems(job); };
 
   const handleSubmit = async () => {
     const targetUrl = config.webhookUrl;
@@ -573,7 +605,7 @@ export default function App() {
                           </div>
                       </div>
                       
-                      {/* 🟢 TICKET VIEW RENDERER */}
+                      {/* 🟢 TICKET VIEW RENDERER IN MODAL */}
                       {(() => {
                           if (loadingDetails) {
                               return <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching specs...</p></div>;
@@ -583,38 +615,18 @@ export default function App() {
                           const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
                           let jsonSpecs = {};
                           try {
-                              // 🟢 NEW: Check for nested "item_details" logic or root-level JSON
-                              const potentialKeys = [
-                                  'Production_Specs_JSON', 
-                                  'Item_Details_JSON', 
-                                  'Details_JSON', 
-                                  'Specs_JSON',
-                                  'Item_Details',
-                                  'Item Details',
-                                  'JSON'
-                              ];
-                              
+                              const potentialKeys = ['Production_Specs_JSON', 'Item_Details_JSON', 'Details_JSON', 'Specs_JSON', 'Item_Details', 'Item Details', 'JSON'];
                               let jsonField = null;
-                              for (const key of potentialKeys) {
-                                  if (item.fields[key]) {
-                                      jsonField = item.fields[key];
-                                      break;
-                                  }
-                              }
-
+                              for (const key of potentialKeys) { if (item.fields[key]) { jsonField = item.fields[key]; break; } }
                               if (jsonField) {
                                   const parsed = typeof jsonField === 'object' ? jsonField : JSON.parse(jsonField);
-                                  // 🟢 DEEP SEARCH: If there is an "item_details" wrapper, use it
                                   jsonSpecs = parsed.item_details || parsed; 
                               }
                           } catch(e) { console.warn("JSON Parse Error", e); }
 
                           const resolve = (keys, defaultVal) => {
-                              // 1. Try direct Airtable column
                               const fieldVal = getValue(item, keys);
                               if (fieldVal !== undefined && fieldVal !== null && fieldVal !== "") return fieldVal;
-                              
-                              // 2. Try JSON blob
                               for (const k of keys) {
                                   if (jsonSpecs[k] !== undefined) return jsonSpecs[k];
                                   if (jsonSpecs[k.toLowerCase()] !== undefined) return jsonSpecs[k.toLowerCase()];
@@ -641,7 +653,6 @@ export default function App() {
                           return (
                               <div className="p-4 bg-yellow-50/50 rounded-xl">
                                   <ProductionTicketCard data={ticketData} />
-                                  
                                   {/* If multiple line items exist, show them below as a list */}
                                   {jobLineItems.length > 1 && (
                                       <div className="mt-8 border-t pt-6">
@@ -668,7 +679,6 @@ export default function App() {
                                   <p className="text-white font-bold mb-2 border-b border-slate-700 pb-1">DEBUGGER</p>
                                   <p>Job ID: {selectedJob.id}</p>
                                   <p>Line Items Found: {jobLineItems.length}</p>
-                                  <p>Link Column Used: {config.airtableLinkedFieldName}</p>
                                   <p className="mt-2 text-yellow-300">Raw Job Fields:</p>
                                   <pre>{JSON.stringify(selectedJob.fields, null, 2)}</pre>
                                   {jobLineItems.length > 0 ? (
@@ -677,23 +687,8 @@ export default function App() {
                                           <pre>{JSON.stringify(jobLineItems[0].fields, null, 2)}</pre>
                                       </>
                                   ) : (
-                                      <p className="mt-2 text-red-400">No Line Items found using linked column: "{config.airtableLinkedFieldName}"</p>
+                                      <p className="mt-2 text-red-400">No Line Items found. Ensure Airtable columns link correctly.</p>
                                   )}
-                                  
-                                  {/* 🟢 Show Parsed JSON Content */}
-                                  <p className="mt-2 text-blue-300">Parsed JSON Specs (from Item):</p>
-                                  {(() => {
-                                      const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
-                                      const potentialKeys = ['Production_Specs_JSON', 'Item_Details_JSON', 'Details_JSON', 'Specs_JSON', 'Item_Details', 'Item Details', 'JSON'];
-                                      let jsonContent = "No JSON field found";
-                                      for (const key of potentialKeys) {
-                                          if (item?.fields?.[key]) {
-                                              jsonContent = item.fields[key];
-                                              break;
-                                          }
-                                      }
-                                      return <pre>{typeof jsonContent === 'object' ? JSON.stringify(jsonContent, null, 2) : jsonContent}</pre>;
-                                  })()}
                               </div>
                           )}
                       </div>
