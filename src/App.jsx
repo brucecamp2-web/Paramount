@@ -29,7 +29,7 @@ import {
 // These values will override any local settings
 const HARDCODED_SUBMIT_WEBHOOK = "https://hook.us2.make.com/mnsu9apt7zhxfjibn3fm6fyy1qrlotlh"; 
 const HARDCODED_SEARCH_WEBHOOK = "https://hook.us2.make.com/1eld4uno29hvl6fifvmw0e4s7ig54was";
-const HARDCODED_CREATE_WEBHOOK = ""; // 🟢 NEW: Add your "Create Customer" Webhook URL here
+const HARDCODED_CREATE_WEBHOOK = "https://hook.us2.make.com/adv73b6j8yxufrxkklj6xtdjr9u5xuqs"; // 🟢 Updated
 const HARDCODED_UPLOAD_WEBHOOK = ""; 
 
 // ✅ Credentials (Hardcoded for stability)
