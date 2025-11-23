@@ -27,7 +27,8 @@ import {
   Trash2,
   Calendar,
   MoreHorizontal,
-  AlertCircle
+  AlertCircle,
+  Code
 } from 'lucide-react';
 
 // --- ⚠️ HARDCODED CONFIGURATION ⚠️ ---
@@ -142,6 +143,7 @@ export default function App() {
   const [isCreatingCustomer, setIsCreatingCustomer] = useState(false); 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
+  const [showDebug, setShowDebug] = useState(false); // 🟢 New Debug State
 
   const [config, setConfig] = useState(() => {
     let loadedConfig = { webhookUrl: '', searchWebhookUrl: '', createWebhookUrl: '', uploadWebhookUrl: '', airtableBaseId: '', airtablePat: '', airtableTableName: 'Jobs', airtableLineItemsName: 'Line Items' };
@@ -306,12 +308,9 @@ export default function App() {
     const width = parseFloat(inputs.width) || 0;
     const height = parseFloat(inputs.height) || 0;
     const qty = parseInt(inputs.quantity) || 0;
-    
-    // 🟢 FALLBACK for UI: If inputs invalid, return placeholder data so UI doesn't crash
     if (width === 0 || height === 0 || qty === 0) {
         return { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
     }
-
     const itemSqFt = (width * height) / 144;
     const totalSqFt = itemSqFt * qty;
     let tierRate = 0;
@@ -494,28 +493,21 @@ export default function App() {
                               if (loadingDetails) {
                                 return <div className="col-span-4 text-center py-4 text-slate-400 italic flex items-center justify-center gap-2"><Loader size={16} className="animate-spin" /> Loading specs...</div>;
                               }
+                              // Priority: First Line Item -> Selected Job
                               const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
-                              // 🟢 DEBUG: Log fields to console to help troubleshoot
-                              console.log('Current Item Fields:', item?.fields);
-
-                              // 🟢 NEW: Attempt to parse JSON blob from Item if direct columns fail
+                              
                               let jsonSpecs = {};
                               try {
+                                  // Try parsing JSON from various fields
                                   const jsonField = item?.fields?.Production_Specs_JSON || item?.fields?.Item_Details_JSON || item?.fields?.Details_JSON || item?.fields?.Specs_JSON;
                                   if (jsonField) jsonSpecs = typeof jsonField === 'object' ? jsonField : JSON.parse(jsonField);
                               } catch(e) {}
 
-                              // Helper to check both record fields AND the parsed JSON
                               const resolve = (keys, defaultVal) => {
-                                  // Try fields first
                                   const fieldVal = getValue(item, keys);
                                   if (fieldVal !== undefined && fieldVal !== null) return fieldVal;
-                                  
-                                  // Try JSON second
                                   for (const k of keys) {
-                                      if (jsonSpecs[k] || jsonSpecs[k.toLowerCase()] || jsonSpecs[k.toUpperCase()]) {
-                                           return jsonSpecs[k] || jsonSpecs[k.toLowerCase()] || jsonSpecs[k.toUpperCase()];
-                                      }
+                                      if (jsonSpecs[k] || jsonSpecs[k.toLowerCase()] || jsonSpecs[k.toUpperCase()]) return jsonSpecs[k] || jsonSpecs[k.toLowerCase()] || jsonSpecs[k.toUpperCase()];
                                   }
                                   return defaultVal;
                               };
@@ -562,6 +554,27 @@ export default function App() {
                             )})} 
                          </div>
                       )}
+                      
+                      {/* 🟢 NEW DEBUG FOOTER */}
+                      <div className="mt-8 pt-4 border-t border-slate-100 text-center no-print">
+                          <button onClick={() => setShowDebug(!showDebug)} className="text-xs text-slate-400 hover:text-slate-600 flex items-center justify-center gap-1 mx-auto"><Code size={12} /> {showDebug ? 'Hide' : 'Show'} Debug Info</button>
+                          {showDebug && (
+                              <div className="text-left bg-slate-900 text-green-400 p-4 rounded mt-2 text-xs font-mono overflow-auto max-h-60">
+                                  <p className="text-white font-bold mb-2 border-b border-slate-700 pb-1">DEBUGGER</p>
+                                  <p>Job ID: {selectedJob.id}</p>
+                                  <p>Line Items Found: {jobLineItems.length}</p>
+                                  <p className="mt-2 text-yellow-300">Raw Job Fields:</p>
+                                  <pre>{JSON.stringify(selectedJob.fields, null, 2)}</pre>
+                                  {jobLineItems.length > 0 && (
+                                      <>
+                                          <p className="mt-2 text-yellow-300">Raw Line Item [0] Fields:</p>
+                                          <pre>{JSON.stringify(jobLineItems[0].fields, null, 2)}</pre>
+                                      </>
+                                  )}
+                              </div>
+                          )}
+                      </div>
+
                    </div>
                 </div>
              </div>
@@ -572,6 +585,7 @@ export default function App() {
       {(viewMode === 'quote' || viewMode === 'production') && (
         <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
           <div className="lg:col-span-5 space-y-6">
+            
             {/* CUSTOMER SEARCH CARD */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-emerald-500">
                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><User size={18} className="text-emerald-600" /> Customer</h2>
@@ -580,6 +594,7 @@ export default function App() {
                ) : (
                   <div className="relative">
                      <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
+                     {/* DROPDOWN RESULTS */}
                      {customerResults.length > 0 && ( 
                         <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-60 overflow-y-auto">
                             {customerResults.map(res => (
