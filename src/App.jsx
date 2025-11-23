@@ -95,7 +95,7 @@ const getDaysSince = (dateString) => {
 
 const getDueDateStatus = (dateString) => {
   if (!dateString) return null;
-  // Handle array lookup fields from Airtable
+  // Handle array lookup fields from Airtable (sometimes they return [ "2023-01-01" ])
   const rawDate = Array.isArray(dateString) ? dateString[0] : dateString;
   const due = new Date(rawDate);
   if (isNaN(due.getTime())) return null;
@@ -127,7 +127,7 @@ const getValue = (record, keys, defaultVal = null) => {
         if (val !== undefined && val !== null && val !== "") {
             // 🟢 CRITICAL: Handle Airtable Lookup Arrays (e.g. Client Name might be ["Acme Corp"])
             if (Array.isArray(val)) {
-                return val[0]; 
+                return val.length > 0 ? val[0] : defaultVal;
             }
             return val;
         }
@@ -146,7 +146,9 @@ const ProductionTicketCard = ({ data }) => {
                 </div>
                 <div className="text-right">
                     <div className="text-sm font-bold text-slate-400 uppercase">Due Date</div>
-                    <div className="text-xl font-mono font-bold text-red-600">{data.dueDate ? new Date(data.dueDate).toLocaleDateString() : "N/A"}</div>
+                    <div className="text-xl font-mono font-bold text-red-600">
+                        {data.dueDate ? new Date(data.dueDate).toLocaleDateString() : "N/A"}
+                    </div>
                 </div>
             </div>
 
@@ -589,7 +591,7 @@ export default function App() {
                                 {dueStatus && <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold flex items-center gap-1 border ${dueStatus.color}`}><dueStatus.icon size={10} /> {dueStatus.label}</span>}
                             </div>
                             <h4 className="font-bold text-slate-800 text-sm mb-1 leading-tight">{job.fields.Project_Name || "Untitled"}</h4>
-                            <p className="text-xs text-slate-500 mb-3 truncate">{getValue(job, ['Client_Name', 'Client Name', 'Customer'], "Unknown")}</p>
+                            <p className="text-xs text-slate-500 mb-3 truncate">{getValue(job, ['Client_Name', 'Client Name', 'Customer', 'Company'], "Unknown")}</p>
                             <div className="flex items-center justify-between pt-2 border-t border-slate-50 mt-2">
                                 <span className="text-xs font-bold text-slate-600">{formatCurrency(job.fields.Total_Price)}</span>
                                 <div className="flex gap-2">{isArtReady && <div className="text-indigo-500" title="Art File Attached"><FileText size={14} /></div>}{!dueStatus && daysOld < 2 && <div className="text-emerald-500" title="New Job"><Clock size={14} /></div>}</div>
@@ -617,7 +619,8 @@ export default function App() {
                             <button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2"><Printer size={14} /> Print Traveler</button>
                           </div>
                       </div>
-                      
+                      {selectedJob.fields.Due_Date && <div className="bg-amber-50 border border-amber-100 rounded p-3 mb-4 flex items-center gap-2 text-amber-800 font-bold text-sm"><Clock size={16} /> Due: {new Date(selectedJob.fields.Due_Date).toLocaleDateString()}</div>}
+
                       {/* 🟢 TICKET VIEW RENDERER IN MODAL */}
                       {(() => {
                           if (loadingDetails) {
@@ -721,7 +724,6 @@ export default function App() {
       {(viewMode === 'quote' || viewMode === 'production') && (
         <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
           <div className="lg:col-span-5 space-y-6">
-            
             {/* CUSTOMER SEARCH CARD */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-emerald-500">
                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><User size={18} className="text-emerald-600" /> Customer</h2>
