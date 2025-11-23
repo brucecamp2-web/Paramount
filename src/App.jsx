@@ -49,6 +49,38 @@ const FINISHING_RATES = {
   lamination_min: 20.00
 };
 
+// Dashboard Column Config (Maps Display Name to Database Statuses)
+const DASHBOARD_COLUMNS = [
+  { 
+    id: 'Quote', 
+    label: 'Quote', 
+    match: ['Quote', 'Draft'], // Matches both new 'Quote' and legacy 'Draft'
+    bg: 'bg-slate-100', 
+    text: 'text-slate-600' 
+  },
+  { 
+    id: 'Prepress', 
+    label: 'Prepress', 
+    match: ['Prepress', 'Approved'], // Matches both new 'Prepress' and legacy 'Approved'
+    bg: 'bg-blue-50', 
+    text: 'text-blue-800' 
+  },
+  { 
+    id: 'Production', 
+    label: 'Production', 
+    match: ['Production'], 
+    bg: 'bg-indigo-50', 
+    text: 'text-indigo-800' 
+  },
+  { 
+    id: 'Complete', 
+    label: 'Complete', 
+    match: ['Complete', 'Shipped'], 
+    bg: 'bg-emerald-50', 
+    text: 'text-emerald-800' 
+  }
+];
+
 // Pricing Database
 const MATERIALS = {
   '3mm PVC (Sintra)': {
@@ -373,10 +405,13 @@ export default function App() {
     e.preventDefault();
     if (!draggingJobId) return;
     const jobToMove = jobs.find(j => j.id === draggingJobId);
+    // Check against fields.Status
     if (!jobToMove || jobToMove.fields.Status === newStatus) { setDraggingJobId(null); return; }
+    
     const updatedJobs = jobs.map(j => j.id === draggingJobId ? { ...j, fields: { ...j.fields, Status: newStatus } } : j);
     setJobs(updatedJobs);
     setDraggingJobId(null);
+    
     if (config.airtableBaseId && config.airtablePat) {
       try {
         const tableName = config.airtableTableName || 'Jobs';
@@ -547,11 +582,11 @@ export default function App() {
           {fetchError && <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-md shadow-sm"><div className="flex items-center"><AlertTriangle className="text-red-600 mr-3" size={20} /><span className="text-red-700 font-medium">{fetchError}</span></div></div>}
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 overflow-x-auto pb-8">
-            {['Draft', 'Approved', 'Production', 'Complete'].map(status => (
-              <div key={status} className={`rounded-xl p-4 min-w-[280px] transition-colors ${status === 'Approved' ? 'bg-blue-50' : status === 'Production' ? 'bg-indigo-50' : status === 'Complete' ? 'bg-emerald-50' : 'bg-slate-100'}`} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, status)}>
-                 <h3 className={`font-bold mb-4 flex items-center gap-2 ${status === 'Approved' ? 'text-blue-800' : status === 'Production' ? 'text-indigo-800' : status === 'Complete' ? 'text-emerald-800' : 'text-slate-600'}`}>{status}</h3>
+            {DASHBOARD_COLUMNS.map(col => (
+              <div key={col.id} className={`rounded-xl p-4 min-w-[280px] transition-colors ${col.bg}`} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, col.id)}>
+                 <h3 className={`font-bold mb-4 flex items-center gap-2 ${col.text}`}>{col.label}</h3>
                  <div className="space-y-3">
-                   {jobs.filter(j => j.fields.Status === status || (status === 'Complete' && j.fields.Status === 'Shipped')).map(job => (
+                   {jobs.filter(j => col.match.includes(j.fields.Status)).map(job => (
                       <div key={job.id} draggable onDragStart={(e) => handleDragStart(e, job.id)} onClick={() => handleJobClick(job)} className={`bg-white p-4 rounded-lg shadow-sm border hover:shadow-md transition-all cursor-pointer active:scale-[0.98] relative group`}>
                         <div className="flex justify-between items-start mb-2"><span className="text-xs font-mono text-slate-400">{job.fields.Job_ID}</span><span className="text-xs font-bold text-slate-600">{formatCurrency(job.fields.Total_Price)}</span></div>
                         <h4 className="font-bold text-slate-800 text-sm mb-1">{job.fields.Project_Name || "Untitled"}</h4>
