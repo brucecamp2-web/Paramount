@@ -481,15 +481,20 @@ export default function App() {
                       {/* 🟢 NEW: ROBUST JOB DETAILS SUMMARY */}
                       <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
                           {(() => {
+                              if (loadingDetails) {
+                                return <div className="col-span-4 text-center py-4 text-slate-400 italic flex items-center justify-center gap-2"><Loader size={16} className="animate-spin" /> Loading specs...</div>;
+                              }
                               // Attempt to get specs from the first line item, falling back to main job record
                               const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
-                              const mat = getValue(item, ['Material_Type', 'Material', 'material'], 'N/A');
-                              const w = getValue(item, ['Width_In', 'Width', 'width', 'Width (in)'], '0');
-                              const h = getValue(item, ['Height_In', 'Height', 'height', 'Height (in)'], '0');
-                              const q = getValue(item, ['Quantity', 'Qty', 'quantity'], '0');
-                              const cut = getValue(item, ['Cut_Type', 'Finishing', 'Cut Type'], 'None');
-                              const lam = getValue(item, ['Lamination', 'lamination'], false);
-                              const grom = getValue(item, ['Grommets', 'grommets'], false);
+                              
+                              // Expanded key list to catch more Airtable variations
+                              const mat = getValue(item, ['Material_Type', 'Material', 'material', 'Material Name', 'Substrate'], 'N/A');
+                              const w = getValue(item, ['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0');
+                              const h = getValue(item, ['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0');
+                              const q = getValue(item, ['Quantity', 'Qty', 'quantity', 'Count'], '0');
+                              const cut = getValue(item, ['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None');
+                              const lam = getValue(item, ['Lamination', 'lamination', 'Laminate'], false);
+                              const grom = getValue(item, ['Grommets', 'grommets', 'Grommet'], false);
 
                               return (
                                   <>
@@ -544,6 +549,7 @@ export default function App() {
                ) : (
                   <div className="relative">
                      <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
+                     {/* DROPDOWN RESULTS */}
                      {customerResults.length > 0 && ( 
                         <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-60 overflow-y-auto">
                             {customerResults.map(res => (
