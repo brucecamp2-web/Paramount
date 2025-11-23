@@ -119,6 +119,71 @@ const getValue = (record, keys, defaultVal = null) => {
     return defaultVal;
 };
 
+// Helper Component for the Ticket UI
+const ProductionTicketCard = ({ data }) => {
+    return (
+        <div className="border-4 border-slate-900 p-6 rounded-xl bg-white shadow-sm">
+            <div className="flex justify-between items-start mb-6 border-b-2 border-slate-900 pb-4">
+                <div>
+                    <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight">{data.jobName || "UNTITLED JOB"}</h2>
+                    <p className="text-lg font-bold text-slate-600 mt-1">{data.clientName || "Walk-in Customer"}</p>
+                </div>
+                <div className="text-right">
+                    <div className="text-sm font-bold text-slate-400 uppercase">Due Date</div>
+                    <div className="text-xl font-mono font-bold text-red-600">{data.dueDate ? new Date(data.dueDate).toLocaleDateString() : "N/A"}</div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-12 gap-6 mb-8">
+                <div className="col-span-8">
+                    <div className="mb-6">
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Material</label>
+                        <div className="text-2xl font-bold text-slate-900">{data.material}</div>
+                        <div className="text-sm font-bold text-slate-500">{data.sides === '2' || data.sides === 2 ? 'DOUBLE SIDED' : 'SINGLE SIDED'}</div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Width</label>
+                            <div className="text-4xl font-black text-slate-900 font-mono">{data.width}"</div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Height</label>
+                            <div className="text-4xl font-black text-slate-900 font-mono">{data.height}"</div>
+                        </div>
+                    </div>
+                </div>
+                <div className="col-span-4 bg-slate-100 rounded-lg p-4 flex flex-col items-center justify-center border-2 border-slate-200 border-dashed">
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Quantity</label>
+                    <div className="text-6xl font-black text-slate-900">{data.quantity}</div>
+                </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 mb-6">
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Finishing & Post-Press</label>
+                <div className="flex flex-wrap gap-3">
+                    {data.cutType !== 'Rectangular' && data.cutType !== 'None' && <span className="px-3 py-1 bg-pink-100 text-pink-800 font-bold rounded border border-pink-200 flex items-center gap-1"><Scissors size={14} /> {data.cutType || "CONTOUR CUT"}</span>}
+                    {(data.cutType === 'Rectangular' || !data.cutType) && <span className="px-3 py-1 bg-slate-200 text-slate-600 font-bold rounded border border-slate-300">RECTANGULAR CUT</span>}
+                    {data.lamination && <span className="px-3 py-1 bg-blue-100 text-blue-800 font-bold rounded border border-blue-200 flex items-center gap-1"><Layers size={14} /> LAMINATED</span>}
+                    {data.grommets && <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold rounded border border-emerald-200 flex items-center gap-1"><CircleIcon /> GROMMETS</span>}
+                    {!data.lamination && !data.grommets && (data.cutType === 'Rectangular' || !data.cutType) && <span className="text-sm text-slate-400 italic">No extra finishing</span>}
+                </div>
+            </div>
+
+            {data.artFileUrl && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex items-center gap-3">
+                    <div className="bg-indigo-100 p-2 rounded"><FileText size={20} className="text-indigo-600" /></div>
+                    <div className="overflow-hidden">
+                        <div className="text-xs font-bold text-indigo-400 uppercase">Art File Linked</div>
+                        <div className="text-xs text-indigo-700 truncate w-full font-mono">
+                            <a href={data.artFileUrl} target="_blank" rel="noreferrer" className="hover:underline">{data.artFileUrl}</a>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 export default function App() {
   const [viewMode, setViewMode] = useState('quote'); 
   const [inputs, setInputs] = useState({
@@ -144,7 +209,7 @@ export default function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [showDebug, setShowDebug] = useState(false); 
-  const [showSettings, setShowSettings] = useState(false); // 🟢 New Settings Toggle
+  const [showSettings, setShowSettings] = useState(false); 
 
   const [config, setConfig] = useState(() => {
     let loadedConfig = { 
@@ -156,7 +221,7 @@ export default function App() {
         airtablePat: '', 
         airtableTableName: 'Jobs', 
         airtableLineItemsName: 'Line Items',
-        airtableLinkedFieldName: 'Job_Link' // 🟢 New Config for Link Column
+        airtableLinkedFieldName: 'Job_Link'
     };
     
     try { if (typeof window !== 'undefined') { const get = (k) => localStorage.getItem(k) || ''; loadedConfig = { webhookUrl: get('paramount_webhook_url'), searchWebhookUrl: get('paramount_search_webhook_url'), createWebhookUrl: get('paramount_create_webhook_url'), uploadWebhookUrl: get('paramount_upload_webhook_url'), airtableBaseId: get('paramount_at_base'), airtablePat: get('paramount_at_pat'), airtableTableName: get('paramount_at_table') || 'Jobs', airtableLineItemsName: get('paramount_at_lines') || 'Line Items', airtableLinkedFieldName: get('paramount_at_link_col') || 'Job_Link' }; } } catch (e) {}
@@ -180,7 +245,7 @@ export default function App() {
         if (!HARDCODED_AIRTABLE_PAT) localStorage.setItem('paramount_at_pat', config.airtablePat);
         localStorage.setItem('paramount_at_table', config.airtableTableName);
         localStorage.setItem('paramount_at_lines', config.airtableLineItemsName);
-        localStorage.setItem('paramount_at_link_col', config.airtableLinkedFieldName); // 🟢 Persist
+        localStorage.setItem('paramount_at_link_col', config.airtableLinkedFieldName);
     } } catch (e) { }
   }, [config]);
 
@@ -507,76 +572,69 @@ export default function App() {
                             <button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2"><Printer size={14} /> Print Traveler</button>
                           </div>
                       </div>
-                      {selectedJob.fields.Due_Date && <div className="bg-amber-50 border border-amber-100 rounded p-3 mb-4 flex items-center gap-2 text-amber-800 font-bold text-sm"><Clock size={16} /> Due: {new Date(selectedJob.fields.Due_Date).toLocaleDateString()}</div>}
-
-                      {/* 🟢 ROBUST JOB DETAILS SUMMARY */}
-                      <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-                          {(() => {
-                              if (loadingDetails) {
-                                return <div className="col-span-4 text-center py-4 text-slate-400 italic flex items-center justify-center gap-2"><Loader size={16} className="animate-spin" /> Loading specs...</div>;
-                              }
-                              // Priority: First Line Item -> Selected Job
-                              const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
-                              
-                              let jsonSpecs = {};
-                              try {
-                                  // Try parsing JSON from various fields
-                                  const jsonField = item?.fields?.Production_Specs_JSON || item?.fields?.Item_Details_JSON || item?.fields?.Details_JSON || item?.fields?.Specs_JSON;
-                                  if (jsonField) jsonSpecs = typeof jsonField === 'object' ? jsonField : JSON.parse(jsonField);
-                              } catch(e) {}
-
-                              const resolve = (keys, defaultVal) => {
-                                  const fieldVal = getValue(item, keys);
-                                  if (fieldVal !== undefined && fieldVal !== null) return fieldVal;
-                                  for (const k of keys) {
-                                      if (jsonSpecs[k] || jsonSpecs[k.toLowerCase()] || jsonSpecs[k.toUpperCase()]) return jsonSpecs[k] || jsonSpecs[k.toLowerCase()] || jsonSpecs[k.toUpperCase()];
-                                  }
-                                  return defaultVal;
-                              };
-
-                              const mat = resolve(['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A');
-                              const w = resolve(['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0');
-                              const h = resolve(['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0');
-                              const q = resolve(['Quantity', 'Qty', 'quantity', 'Count'], '0');
-                              const cut = resolve(['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None');
-                              const lam = resolve(['Lamination', 'lamination', 'Laminate'], false);
-                              const grom = resolve(['Grommets', 'grommets', 'Grommet'], false);
-
-                              return (
-                                  <>
-                                      <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Material</label><p className="font-bold text-slate-800 truncate">{mat}</p></div>
-                                      <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Dimensions</label><p className="font-bold text-slate-800">{w}" x {h}"</p></div>
-                                      <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quantity</label><p className="font-bold text-slate-800 text-lg">{q}</p></div>
-                                      <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Finishing</label><p className="font-bold text-slate-800 text-xs leading-tight mt-1 truncate">{cut}</p>
-                                          <div className="flex flex-wrap gap-1 mt-1">{lam && <span className="text-[10px] bg-blue-100 text-blue-800 px-1 rounded">Lam</span>}{grom && <span className="text-[10px] bg-green-100 text-green-800 px-1 rounded">Grom</span>}</div>
-                                      </div>
-                                  </>
-                              );
-                          })()}
-                      </div>
-
-                      <div className="hidden print:block mb-4"><h3 className="text-lg font-bold border-b-2 border-black pb-1">WORK ORDER</h3></div>
-                      {loadingDetails ? <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching...</p></div> : (
-                         <div className="space-y-6">
-                            {jobLineItems.length === 0 && <div className="text-center py-8 text-slate-400 italic">No line items found for this job.</div>}
-                            {jobLineItems.map((item, idx) => {
-                               let specs = {}; try { if (item.fields.Production_Specs_JSON) specs = JSON.parse(item.fields.Production_Specs_JSON); } catch(e){}
-                               return (
-                                 <div key={item.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50 print:bg-white print:border-black print:border-2">
-                                    <div className="flex justify-between items-start mb-3 border-b border-slate-200 pb-3 print:border-black">
-                                       <div><span className="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded mr-2 print:text-black print:bg-transparent print:border print:border-black">Item #{idx + 1}</span><span className="font-bold text-slate-800 text-lg print:text-black">{item.fields.Material_Type}</span></div>
-                                       <div className="text-right"><span className="block font-bold text-2xl">{item.fields.Quantity}</span></div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4 text-sm">
-                                       <div><p className="text-xs text-slate-400 uppercase font-bold mb-1 print:text-black">Dimensions</p><p className="font-mono font-semibold text-lg">{item.fields.Width_In}" x {item.fields.Height_In}"</p></div>
-                                       <div><p className="text-xs text-slate-400 uppercase font-bold mb-1 print:text-black">Finishing</p><p>{item.fields.Cut_Type}</p></div>
-                                    </div>
-                                    {specs.name && <div className="mt-3 text-xs bg-white p-2 border rounded print:border-black">Use <strong>{specs.name}</strong> sheet. Yield: {specs.yield}. Waste: {typeof specs.waste === 'number' ? specs.waste.toFixed(1) : 0}%</div>}
-                                 </div>
-                            )})} 
-                         </div>
-                      )}
                       
+                      {/* 🟢 TICKET VIEW RENDERER */}
+                      {(() => {
+                          if (loadingDetails) {
+                              return <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching specs...</p></div>;
+                          }
+
+                          // Data Preparation
+                          const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
+                          let jsonSpecs = {};
+                          try {
+                              const jsonField = item?.fields?.Production_Specs_JSON || item?.fields?.Item_Details_JSON || item?.fields?.Details_JSON || item?.fields?.Specs_JSON;
+                              if (jsonField) jsonSpecs = typeof jsonField === 'object' ? jsonField : JSON.parse(jsonField);
+                          } catch(e) {}
+
+                          const resolve = (keys, defaultVal) => {
+                              const fieldVal = getValue(item, keys);
+                              if (fieldVal !== undefined && fieldVal !== null) return fieldVal;
+                              for (const k of keys) {
+                                  if (jsonSpecs[k] || jsonSpecs[k.toLowerCase()] || jsonSpecs[k.toUpperCase()]) return jsonSpecs[k] || jsonSpecs[k.toLowerCase()] || jsonSpecs[k.toUpperCase()];
+                              }
+                              return defaultVal;
+                          };
+
+                          // Normalize Data Object for Ticket Component
+                          const ticketData = {
+                              jobName: selectedJob.fields.Project_Name,
+                              clientName: selectedJob.fields.Client_Name,
+                              dueDate: selectedJob.fields.Due_Date,
+                              material: resolve(['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A'),
+                              width: resolve(['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0'),
+                              height: resolve(['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0'),
+                              quantity: resolve(['Quantity', 'Qty', 'quantity', 'Count'], '0'),
+                              sides: resolve(['Sides', 'Print Sides', 'sides'], '1'),
+                              cutType: resolve(['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None'),
+                              lamination: resolve(['Lamination', 'lamination', 'Laminate'], false),
+                              grommets: resolve(['Grommets', 'grommets', 'Grommet'], false),
+                              artFileUrl: resolve(['Art_File_Link', 'Art File', 'File'], '')
+                          };
+
+                          return (
+                              <div className="p-4 bg-yellow-50/50 rounded-xl">
+                                  {/* Render the Big Ticket Card */}
+                                  <ProductionTicketCard data={ticketData} />
+                                  
+                                  {/* If multiple line items exist, show them below as a list */}
+                                  {jobLineItems.length > 1 && (
+                                      <div className="mt-8 border-t pt-6">
+                                          <h4 className="font-bold text-slate-500 text-sm uppercase mb-4">Additional Items in this Job</h4>
+                                          <div className="space-y-2">
+                                              {jobLineItems.slice(1).map((subItem, idx) => (
+                                                  <div key={subItem.id} className="bg-white p-3 rounded border text-sm flex justify-between">
+                                                      <span>{getValue(subItem, ['Material_Type', 'Material'])} ({getValue(subItem, ['Width_In', 'Width'])}" x {getValue(subItem, ['Height_In', 'Height'])}")</span>
+                                                      <span className="font-bold">Qty: {getValue(subItem, ['Quantity', 'Qty'])}</span>
+                                                  </div>
+                                              ))}
+                                          </div>
+                                      </div>
+                                  )}
+                              </div>
+                          );
+                      })()}
+
                       {/* 🟢 NEW DEBUG FOOTER */}
                       <div className="mt-8 pt-4 border-t border-slate-100 text-center no-print">
                           <button onClick={() => setShowDebug(!showDebug)} className="text-xs text-slate-400 hover:text-slate-600 flex items-center justify-center gap-1 mx-auto"><Code size={12} /> {showDebug ? 'Hide' : 'Show'} Debug Info</button>
@@ -730,30 +788,21 @@ export default function App() {
                       <span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">INTERNAL USE ONLY</span>
                     </div>
                     <div className="p-8 bg-yellow-50/50 h-full">
-                        <div className="border-4 border-slate-900 p-6 rounded-xl bg-white shadow-sm">
-                            <div className="flex justify-between items-start mb-6 border-b-2 border-slate-900 pb-4">
-                                <div><h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight">{inputs.jobName || "UNTITLED JOB"}</h2><p className="text-lg font-bold text-slate-600 mt-1">{customer.name || "Walk-in Customer"}</p></div>
-                                <div className="text-right"><div className="text-sm font-bold text-slate-400 uppercase">Due Date</div><div className="text-xl font-mono font-bold text-red-600">{inputs.dueDate ? new Date(inputs.dueDate).toLocaleDateString() : "N/A"}</div></div>
-                            </div>
-                            <div className="grid grid-cols-12 gap-6 mb-8">
-                                <div className="col-span-8">
-                                    <div className="mb-6"><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Material</label><div className="text-2xl font-bold text-slate-900">{inputs.material}</div><div className="text-sm font-bold text-slate-500">{inputs.sides === '2' ? 'DOUBLE SIDED' : 'SINGLE SIDED'}</div></div>
-                                    <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Width</label><div className="text-4xl font-black text-slate-900 font-mono">{inputs.width}"</div></div><div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Height</label><div className="text-4xl font-black text-slate-900 font-mono">{inputs.height}"</div></div></div>
-                                </div>
-                                <div className="col-span-4 bg-slate-100 rounded-lg p-4 flex flex-col items-center justify-center border-2 border-slate-200 border-dashed"><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Quantity</label><div className="text-6xl font-black text-slate-900">{inputs.quantity}</div></div>
-                            </div>
-                            <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 mb-6">
-                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Finishing & Post-Press</label>
-                                <div className="flex flex-wrap gap-3">
-                                    {inputs.cutType !== 'Rectangular' && <span className="px-3 py-1 bg-pink-100 text-pink-800 font-bold rounded border border-pink-200 flex items-center gap-1"><Scissors size={14} /> CONTOUR CUT</span>}
-                                    {inputs.cutType === 'Rectangular' && <span className="px-3 py-1 bg-slate-200 text-slate-600 font-bold rounded border border-slate-300">RECTANGULAR CUT</span>}
-                                    {inputs.addLamination && <span className="px-3 py-1 bg-blue-100 text-blue-800 font-bold rounded border border-blue-200 flex items-center gap-1"><Layers size={14} /> LAMINATED</span>}
-                                    {inputs.addGrommets && <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold rounded border border-emerald-200 flex items-center gap-1"><CircleIcon /> GROMMETS</span>}
-                                    {!inputs.addLamination && !inputs.addGrommets && inputs.cutType === 'Rectangular' && <span className="text-sm text-slate-400 italic">No extra finishing</span>}
-                                </div>
-                            </div>
-                            {inputs.artFileUrl && (<div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex items-center gap-3"><div className="bg-indigo-100 p-2 rounded"><FileText size={20} className="text-indigo-600" /></div><div className="overflow-hidden"><div className="text-xs font-bold text-indigo-400 uppercase">Art File Linked</div><div className="text-xs text-indigo-700 truncate w-full font-mono">{inputs.artFileUrl}</div></div></div>)}
-                        </div>
+                        {/* 🟢 Use the Ticket Component for Preview */}
+                        <ProductionTicketCard data={{
+                            jobName: inputs.jobName,
+                            clientName: customer.name || "Walk-in Customer",
+                            dueDate: inputs.dueDate,
+                            material: inputs.material,
+                            width: inputs.width,
+                            height: inputs.height,
+                            quantity: inputs.quantity,
+                            sides: inputs.sides,
+                            cutType: inputs.cutType,
+                            lamination: inputs.addLamination,
+                            grommets: inputs.addGrommets,
+                            artFileUrl: inputs.artFileUrl
+                        }} />
                     </div>
                   </>
                 )}
