@@ -331,9 +331,22 @@ export default function App() {
       reader.readAsDataURL(file);
       reader.onload = async () => {
         const base64Data = reader.result.split(',')[1]; 
+        
+        // 🟢 SANITIZE & APPEND QUOTE REF: Ensure filename is safe and unique
+        const lastDot = file.name.lastIndexOf('.');
+        const ext = lastDot === -1 ? '' : file.name.substring(lastDot);
+        const originalName = lastDot === -1 ? file.name : file.name.substring(0, lastDot);
+        
+        const cleanOriginal = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const cleanJob = inputs.jobName ? inputs.jobName.replace(/[^a-zA-Z0-9._-]/g, '_') : 'Quote';
+        const quoteRef = Date.now().toString().slice(-6); // Last 6 digits of timestamp as "Quote Number"
+
+        // Final Format: JobName_FileName_Ref123456.jpg
+        const finalName = `${cleanJob}_${cleanOriginal}_Ref${quoteRef}${ext}`;
+
         const response = await fetch(targetUrl, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: file.name, mime: file.type, data: base64Data })
+          body: JSON.stringify({ name: finalName, mime: file.type, data: base64Data })
         });
         if (!response.ok) throw new Error("Upload failed");
         
