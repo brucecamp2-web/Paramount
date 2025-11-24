@@ -93,11 +93,15 @@ const getDaysSince = (dateString) => {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 };
 
-// 🟢 ROBUST DUE DATE CHECKER
 const getDueDateStatus = (dateInput) => {
   if (!dateInput) return null;
-  // Handle array lookup fields from Airtable (sometimes they return [ "2023-01-01" ])
-  const rawDate = Array.isArray(dateInput) ? dateInput[0] : dateInput;
+  // 🟢 Handle deeply nested arrays from Lookups
+  let rawDate = dateInput;
+  while(Array.isArray(rawDate)) {
+    if(rawDate.length === 0) return null;
+    rawDate = rawDate[0];
+  }
+  
   if (!rawDate) return null;
 
   const due = new Date(rawDate);
@@ -113,14 +117,14 @@ const getDueDateStatus = (dateInput) => {
   return { color: 'bg-slate-100 text-slate-600 border-slate-200', label: due.toLocaleDateString(undefined, {month:'short', day:'numeric'}), icon: Calendar };
 };
 
-// 🟢 SMART FIELD RESOLVER (IMPROVED for Arrays/Lookups)
+// 🟢 SMART FIELD RESOLVER (Recursive Flattening)
 const getValue = (record, keys, defaultVal = null) => {
     if (!record || !record.fields) return defaultVal;
     
     for (const key of keys) {
         let val = record.fields[key];
         
-        // If undefined, try case-insensitive search
+        // Try case-insensitive search
         if (val === undefined) {
             const lowerKey = key.toLowerCase();
             const foundKey = Object.keys(record.fields).find(k => k.toLowerCase() === lowerKey);
@@ -128,7 +132,7 @@ const getValue = (record, keys, defaultVal = null) => {
         }
 
         if (val !== undefined && val !== null && val !== "") {
-            // 🟢 CRITICAL: Recursively Flatten Arrays (e.g. Lookup of a Lookup)
+            // 🟢 Recursively flatten arrays (Handle Lookups of Lookups)
             while (Array.isArray(val)) {
                 if (val.length === 0) return defaultVal;
                 val = val[0];
@@ -408,31 +412,47 @@ export default function App() {
 
   const calculationResult = useMemo(() => {
     // 🟢 QUOTE CRASH FIX: Fallback if material is not found/defined
-    const matData = MATERIALS[inputs.material] || MATERIALS['3mm PVC (Sintra)'];
+    // We use the first material key as fallback if inputs.material is invalid
+    const matData = MATERIALS[inputs.material] || Object.values(MATERIALS)[0];
     
     const width = parseFloat(inputs.width) || 0;
     const height = parseFloat(inputs.height) || 0;
     const qty = parseInt(inputs.quantity) || 0;
     
-    if (width === 0 || height === 0 || qty === 0) {
+    // Return empty safe object if dimensions invalid, but DO NOT RETURN NULL
+    if (width === 0 || height === 0 || qty === 0 || !matData) {
         return { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
     }
+
     const itemSqFt = (width * height) / 144;
     const totalSqFt = itemSqFt * qty;
     let tierRate = 0;
-    for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } }
+    // Check if tiers exist
+    if (matData && matData.tiers) {
+        for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } }
+    }
+    
     let basePrintCost = totalSqFt * tierRate;
     if (inputs.sides === '2') basePrintCost *= DOUBLE_SIDED_MULTIPLIER;
+    
     const costs = { print: basePrintCost, setup: GLOBAL_SETUP_FEE, lamination: 0, grommets: 0, contour: 0 };
+    
     if (inputs.addLamination) {
-      if (!matData.can_laminate) {} else { let lamCost = totalSqFt * FINISHING_RATES.lamination; if (lamCost < FINISHING_RATES.lamination_min) lamCost = FINISHING_RATES.lamination_min; costs.lamination = lamCost; }
+      if (matData && matData.can_laminate) { 
+          let lamCost = totalSqFt * FINISHING_RATES.lamination; 
+          if (lamCost < FINISHING_RATES.lamination_min) lamCost = FINISHING_RATES.lamination_min; 
+          costs.lamination = lamCost; 
+      }
     }
+    
     if (inputs.addGrommets) costs.grommets = qty * inputs.grommetsPerSign * FINISHING_RATES.grommets;
     if (inputs.cutType === 'Contour') costs.contour = CONTOUR_SETUP_FEE;
+    
     const totalSellPrice = Object.values(costs).reduce((a, b) => a + b, 0);
     const unitPrice = totalSellPrice / qty;
     let bestSheet = null;
-    if (matData.sheets) {
+    
+    if (matData && matData.sheets) {
       let bestCost = Infinity;
       matData.sheets.forEach(sheet => {
         const sw = sheet.w, sh = sheet.h;
@@ -626,8 +646,6 @@ export default function App() {
                             <button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2"><Printer size={14} /> Print Traveler</button>
                           </div>
                       </div>
-                      {selectedJob.fields.Due_Date && <div className="bg-amber-50 border border-amber-100 rounded p-3 mb-4 flex items-center gap-2 text-amber-800 font-bold text-sm"><Clock size={16} /> Due: {new Date(selectedJob.fields.Due_Date).toLocaleDateString()}</div>}
-
                       {/* 🟢 TICKET VIEW RENDERER IN MODAL */}
                       {(() => {
                           if (loadingDetails) {
@@ -657,7 +675,7 @@ export default function App() {
                               return defaultVal;
                           };
 
-                          // 🟢 SMART RESOLVE
+                          // 🟢 SMART RESOLVE - Look at JOB record for Client/Due Date
                           const clientName = getValue(selectedJob, ['Client_Name', 'Client Name', 'Client', 'Customer_Name', 'Customer Name', 'Customer', 'Company', 'Business Name'], "Walk-in Customer");
                           const dueDate = getValue(selectedJob, ['Due_Date', 'Due Date', 'DueDate', 'Deadline', 'Date Due', 'Ship Date', 'Target Date'], null);
                           const jobName = getValue(selectedJob, ['Project_Name', 'Project Name', 'Job Name', 'Name'], "UNTITLED JOB");
