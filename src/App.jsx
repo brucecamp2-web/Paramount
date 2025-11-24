@@ -31,7 +31,10 @@ import {
   Code,
   Plus,
   BookOpen,
-  Save
+  Save,
+  MapPin,
+  Phone,
+  Mail
 } from 'lucide-react';
 
 // --- ⚠️ HARDCODED CONFIGURATION ⚠️ ---
@@ -51,8 +54,8 @@ const FINISHING_RATES = {
   grommets: 0.25,
   lamination: 2.50,
   lamination_min: 20.00,
-  coil_binding: 5.00, // Per book
-  stapling: 0.50      // Per book
+  coil_binding: 5.00, 
+  stapling: 0.50      
 };
 
 const DASHBOARD_COLUMNS = [
@@ -62,7 +65,6 @@ const DASHBOARD_COLUMNS = [
   { id: 'Complete', label: 'Complete', match: ['Complete', 'Shipped'], bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-200' }
 ];
 
-// 🟢 DEFAULT DIGITAL PRODUCTS (Seed Data)
 const DEFAULT_DIGITAL_PRODUCTS = [
   { id: 'menu_85_14', name: 'Menu 8.5x14 (Synthetic)', width: 8.5, height: 14, basePrice: 2.50, perPagePrice: 0.00, binding: 'None' },
   { id: 'booklet_85_11', name: 'Coil Bound Book 8.5x11', width: 8.5, height: 11, basePrice: 5.00, perPagePrice: 0.25, binding: 'Coil' },
@@ -99,40 +101,25 @@ const formatCurrency = (val) => new Intl.NumberFormat('en-US', { style: 'currenc
 const safeFormatDate = (dateInput) => {
     if (!dateInput) return "";
     let raw = dateInput;
-    while (Array.isArray(raw)) {
-        if (raw.length === 0) return "";
-        raw = raw[0];
-    }
+    while (Array.isArray(raw)) { if (raw.length === 0) return ""; raw = raw[0]; }
     try {
         let date;
-        if (typeof raw === 'string' && raw.match(/^\d{4}-\d{2}-\d{2}$/)) {
-             date = new Date(raw + 'T12:00:00');
-        } else {
-             date = new Date(raw);
-        }
+        if (typeof raw === 'string' && raw.match(/^\d{4}-\d{2}-\d{2}$/)) { date = new Date(raw + 'T12:00:00'); } 
+        else { date = new Date(raw); }
         if (isNaN(date.getTime())) return ""; 
         return date.toLocaleDateString();
-    } catch (e) {
-        return "";
-    }
+    } catch (e) { return ""; }
 };
 
 const getDueDateStatus = (dateInput) => {
   if (!dateInput) return null;
   let rawDate = dateInput;
-  while (Array.isArray(rawDate)) {
-      if (rawDate.length === 0) return null;
-      rawDate = rawDate[0];
-  }
+  while (Array.isArray(rawDate)) { if (rawDate.length === 0) return null; rawDate = rawDate[0]; }
   let due;
-  if (typeof rawDate === 'string' && rawDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-     due = new Date(rawDate + 'T12:00:00');
-  } else {
-     due = new Date(rawDate);
-  }
+  if (typeof rawDate === 'string' && rawDate.match(/^\d{4}-\d{2}-\d{2}$/)) { due = new Date(rawDate + 'T12:00:00'); } 
+  else { due = new Date(rawDate); }
   if (isNaN(due.getTime())) return null;
-  const today = new Date();
-  today.setHours(0,0,0,0);
+  const today = new Date(); today.setHours(0,0,0,0);
   const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   if (diffDays < 0) return { color: 'bg-red-100 text-red-700 border-red-200', label: 'Overdue', icon: AlertCircle };
   if (diffDays === 0) return { color: 'bg-amber-100 text-amber-700 border-amber-200', label: 'Due Today', icon: Clock };
@@ -140,6 +127,7 @@ const getDueDateStatus = (dateInput) => {
   return { color: 'bg-slate-100 text-slate-600 border-slate-200', label: due.toLocaleDateString(undefined, {month:'short', day:'numeric'}), icon: Calendar };
 };
 
+// 🟢 SMART FIELD RESOLVER (IMPROVED for Arrays/Lookups)
 const getValue = (record, keys, defaultVal = null) => {
     if (!record || !record.fields) return defaultVal;
     for (const key of keys) {
@@ -150,30 +138,56 @@ const getValue = (record, keys, defaultVal = null) => {
             if (foundKey) val = record.fields[foundKey];
         }
         if (val !== undefined && val !== null && val !== "") {
-            while (Array.isArray(val)) {
-                if (val.length === 0) return defaultVal;
-                val = val[0];
-            }
+            while (Array.isArray(val)) { if (val.length === 0) return defaultVal; val = val[0]; }
             return val;
         }
     }
     return defaultVal;
 };
 
+// Helper Component for the Ticket UI
 const ProductionTicketCard = ({ data }) => {
     const formattedDate = safeFormatDate(data.dueDate) || "N/A";
+    
+    // Format Address Helper
+    const formatAddress = (addr) => {
+        if (!addr) return null;
+        if (typeof addr === 'string') return addr;
+        if (typeof addr === 'object') {
+            // Handle QBO Address Object
+            const line1 = addr.Line1 || '';
+            const city = addr.City || '';
+            const state = addr.CountrySubDivisionCode || '';
+            const postal = addr.PostalCode || '';
+            return `${line1}, ${city} ${state} ${postal}`.replace(/,\s+$/, '').trim();
+        }
+        return null;
+    };
+
+    const shipAddress = formatAddress(data.shipAddr);
+
     return (
         <div className="border-4 border-slate-900 p-6 rounded-xl bg-white shadow-sm text-left">
             <div className="flex justify-between items-start mb-6 border-b-2 border-slate-900 pb-4">
                 <div>
                     <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight">{data.jobName || "UNTITLED JOB"}</h2>
                     <p className="text-lg font-bold text-slate-600 mt-1">{data.clientName}</p>
+                    
+                    {/* 🟢 CONTACT INFO SECTION */}
+                    {(data.email || data.phone || shipAddress) && (
+                        <div className="mt-3 text-xs text-slate-500 space-y-1 font-mono">
+                            {data.email && <div className="flex items-center gap-2"><Mail size={12} /> {data.email}</div>}
+                            {data.phone && <div className="flex items-center gap-2"><Phone size={12} /> {data.phone}</div>}
+                            {shipAddress && <div className="flex items-start gap-2"><MapPin size={12} className="mt-0.5" /> {shipAddress}</div>}
+                        </div>
+                    )}
                 </div>
                 <div className="text-right">
                     <div className="text-sm font-bold text-slate-400 uppercase">Due Date</div>
                     <div className="text-xl font-mono font-bold text-red-600">{formattedDate}</div>
                 </div>
             </div>
+
             <div className="grid grid-cols-12 gap-6 mb-8">
                 <div className="col-span-8">
                     <div className="mb-6">
@@ -197,10 +211,12 @@ const ProductionTicketCard = ({ data }) => {
                     <div className="text-6xl font-black text-slate-900">{data.quantity}</div>
                 </div>
             </div>
+
             <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 mb-6">
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Finishing & Production Notes</label>
                 <div className="flex flex-wrap gap-3">
                     {data.cutType !== 'Rectangular' && data.cutType !== 'None' && <span className="px-3 py-1 bg-pink-100 text-pink-800 font-bold rounded border border-pink-200 flex items-center gap-1"><Scissors size={14} /> {data.cutType || "CONTOUR CUT"}</span>}
+                    {(data.cutType === 'Rectangular' || !data.cutType) && <span className="px-3 py-1 bg-slate-200 text-slate-600 font-bold rounded border border-slate-300">RECTANGULAR CUT</span>}
                     {data.lamination && <span className="px-3 py-1 bg-blue-100 text-blue-800 font-bold rounded border border-blue-200 flex items-center gap-1"><Layers size={14} /> LAMINATED</span>}
                     {data.grommets && <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold rounded border border-emerald-200 flex items-center gap-1"><CircleIcon /> GROMMETS</span>}
                     
@@ -212,6 +228,7 @@ const ProductionTicketCard = ({ data }) => {
                     {!data.lamination && !data.grommets && !data.binding && (data.cutType === 'Rectangular' || !data.cutType) && <span className="text-sm text-slate-400 italic">Standard Finishing</span>}
                 </div>
             </div>
+
             {data.artFileUrl && (
                 <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex items-center gap-3">
                     <div className="bg-indigo-100 p-2 rounded"><FileText size={20} className="text-indigo-600" /></div>
@@ -228,10 +245,9 @@ const ProductionTicketCard = ({ data }) => {
 };
 
 export default function App() {
-  const [viewMode, setViewMode] = useState('quote'); // 'quote', 'production', 'dashboard', 'admin'
-  const [quoteType, setQuoteType] = useState('large_format'); // 🟢 'large_format' or 'digital'
+  const [viewMode, setViewMode] = useState('quote'); 
+  const [quoteType, setQuoteType] = useState('large_format'); 
   
-  // Load Digital Products from Storage or Default
   const [digitalProducts, setDigitalProducts] = useState(() => {
       if (typeof window !== 'undefined') {
           const saved = localStorage.getItem('paramount_digital_products');
@@ -253,7 +269,6 @@ export default function App() {
     grommetsPerSign: 4,
     artFileUrl: '',
     dueDate: '',
-    // 🟢 Digital Specific
     digitalProductId: '',
     customDigitalName: '',
     unitPrice: 0,
@@ -261,7 +276,8 @@ export default function App() {
     bindingType: 'None'
   });
 
-  const [customer, setCustomer] = useState({ id: '', name: '' });
+  // 🟢 UPDATED CUSTOMER STATE
+  const [customer, setCustomer] = useState({ id: '', name: '', email: '', phone: '', shipAddr: null });
   const [customerQuery, setCustomerQuery] = useState('');
   const [customerResults, setCustomerResults] = useState([]);
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
@@ -270,8 +286,6 @@ export default function App() {
   const [uploadError, setUploadError] = useState(null);
   const [showDebug, setShowDebug] = useState(false); 
   const [showSettings, setShowSettings] = useState(false); 
-
-  // Admin State for new product
   const [newProduct, setNewProduct] = useState({ name: '', width: 0, height: 0, basePrice: 0, perPagePrice: 0, binding: 'None' });
 
   const [config, setConfig] = useState(() => {
@@ -307,7 +321,6 @@ export default function App() {
         localStorage.setItem('paramount_at_table', config.airtableTableName);
         localStorage.setItem('paramount_at_lines', config.airtableLineItemsName);
         localStorage.setItem('paramount_at_link_col', config.airtableLinkedFieldName);
-        // Save products
         localStorage.setItem('paramount_digital_products', JSON.stringify(digitalProducts));
     } } catch (e) { }
   }, [config, digitalProducts]);
@@ -323,10 +336,7 @@ export default function App() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // ... (Keep searchCustomers, handleCreateCustomer, selectCustomer, handleFileUpload, handleDragStart, handleDragOver, handleDrop, handleDeleteJob, fetchJobs, fetchLineItems, handleJobClick as is)
-  // To save space I'm skipping re-pasting the unmodified API functions, but in a real file they must be here.
-  // I will re-include them for the full file below to ensure copy-paste works.
-
+  // 🟢 UPDATED SEARCH LOGIC TO EXTRACT QBO FIELDS
   const searchCustomers = async () => {
     const targetUrl = config.searchWebhookUrl;
     if (!targetUrl) { alert("Please add your Customer Search Webhook URL."); return; }
@@ -349,10 +359,19 @@ export default function App() {
         results = data.data || data.results || data.customers || data.items || [];
         if (!Array.isArray(results) && (data.id || data.Id || data.ID || data.DisplayName)) results = [data];
       }
-      const normalizedResults = Array.isArray(results) ? results.map(c => ({ id: c.id || c.Id || c.ID || 'unknown', DisplayName: c.DisplayName || c.name || c.FullyQualifiedName || 'Unknown Name' })) : [];
+      
+      // 🟢 EXTRACT EXTRA FIELDS
+      const normalizedResults = Array.isArray(results) ? results.map(c => ({
+         id: c.id || c.Id || c.ID || 'unknown',
+         DisplayName: c.DisplayName || c.name || c.FullyQualifiedName || 'Unknown Name',
+         email: c.PrimaryEmailAddr?.Address || c.email || '',
+         phone: c.PrimaryPhone?.FreeFormNumber || c.phone || '',
+         shipAddr: c.ShipAddr || c.shippingAddress || null
+      })) : [];
+
       const finalResults = [...normalizedResults];
       if (finalResults.length === 0) {
-         if (customerQuery.toLowerCase().includes('acme')) finalResults.push({ id: '99', DisplayName: 'Acme Corp (Demo)' });
+         if (customerQuery.toLowerCase().includes('acme')) finalResults.push({ id: '99', DisplayName: 'Acme Corp (Demo)', email: 'demo@acme.com', phone: '555-123-4567' });
          else finalResults.push({ id: 'no-results', DisplayName: 'No customers found.' });
       }
       if (customerQuery.trim().length > 1) finalResults.push({ id: 'create-new', DisplayName: `+ Create "${customerQuery}" in QuickBooks`, isAction: true });
@@ -372,14 +391,21 @@ export default function App() {
         const data = JSON.parse(rawText);
         const newId = data.id || data.Id || data.ID;
         const newName = data.DisplayName || data.name || data.FullyQualifiedName || customerQuery;
-        if (newId) { setCustomer({ id: newId, name: newName }); setCustomerResults([]); setCustomerQuery(''); } else { alert("Customer created, but no ID returned."); }
+        if (newId) { setCustomer({ id: newId, name: newName, email: '', phone: '', shipAddr: null }); setCustomerResults([]); setCustomerQuery(''); } else { alert("Customer created, but no ID returned."); }
     } catch (error) { alert(`Creation failed: ${error.message}`); } finally { setIsCreatingCustomer(false); }
   };
 
   const selectCustomer = (cust) => {
     if (cust.id === 'create-new') { handleCreateCustomer(); return; }
     if (cust.id === 'error-msg' || cust.id === 'no-results' || cust.id === 'make-setup') return; 
-    setCustomer({ id: cust.id, name: cust.DisplayName }); setCustomerResults([]); setCustomerQuery(''); 
+    setCustomer({ 
+        id: cust.id, 
+        name: cust.DisplayName,
+        email: cust.email,
+        phone: cust.phone,
+        shipAddr: cust.shipAddr
+    }); 
+    setCustomerResults([]); setCustomerQuery(''); 
   };
 
   const handleFileUpload = async (e) => {
@@ -448,50 +474,6 @@ export default function App() {
     } catch (error) { alert("Failed to delete job: " + error.message); } finally { setIsDeleting(false); }
   };
 
-  const fetchJobs = async () => {
-    setFetchError(null);
-    const baseId = config.airtableBaseId; const pat = config.airtablePat;
-    if (!baseId || !pat) return;
-    const tableName = config.airtableTableName || 'Jobs';
-    setLoadingJobs(true);
-    try {
-      const encodedTable = encodeURIComponent(tableName);
-      const response = await fetch(`https://api.airtable.com/v0/${baseId}/${encodedTable}`, { headers: { Authorization: `Bearer ${pat}` } });
-      if (!response.ok) throw new Error(`Airtable Error: ${response.statusText}`);
-      const data = await response.json();
-      setJobs(data.records);
-    } catch (error) { setFetchError(error.message); } finally { setLoadingJobs(false); }
-  };
-
-  const fetchLineItems = async (job) => {
-    setLoadingDetails(true); setJobLineItems([]);
-    const tableName = config.airtableLineItemsName || 'Line Items'; 
-    const baseId = config.airtableBaseId; 
-    const pat = config.airtablePat;
-    const linkedField = config.airtableLinkedFieldName || 'Job_Link';
-    const encodedTable = encodeURIComponent(tableName);
-    try {
-        let url = '';
-        const possibleLinkCols = ['Line Items', 'LineItems', 'Items', 'Line_Items'];
-        let linkedIds = [];
-        for (const key of possibleLinkCols) {
-            if (job.fields[key] && Array.isArray(job.fields[key])) { linkedIds = job.fields[key]; break; }
-        }
-        if (linkedIds.length > 0) {
-            const formula = `OR(${linkedIds.map(id => `RECORD_ID()='${id}'`).join(',')})`;
-            url = `https://api.airtable.com/v0/${baseId}/${encodedTable}?filterByFormula=${encodeURIComponent(formula)}`;
-        } else {
-            const filterFormula = `filterByFormula=${encodeURIComponent(`{${linkedField}}='${job.id}'`)}`;
-            url = `https://api.airtable.com/v0/${baseId}/${encodedTable}?${filterFormula}`;
-        }
-        const response = await fetch(url, { headers: { Authorization: `Bearer ${pat}` } });
-        if (response.ok) { const data = await response.json(); setJobLineItems(data.records); }
-    } catch (error) { console.error("Fetch Line Items Error:", error); } finally { setLoadingDetails(false); }
-  };
-
-  const handleJobClick = (job) => { setSelectedJob(job); fetchLineItems(job); };
-
-  // 🟢 NEW: Dynamic Calculation Result based on Quote Type
   const calculationResult = useMemo(() => {
     const qty = parseInt(inputs.quantity) || 0;
     
@@ -546,10 +528,8 @@ export default function App() {
         const marginPercent = (grossMargin / totalSellPrice) * 100;
         return { specs: { totalSqFt, tierRate, itemSqFt }, costs, totalSellPrice, unitPrice, production: bestSheet, profitability: { grossMargin, marginPercent } };
     } else {
-        // 🟢 DIGITAL / SMALL FORMAT LOGIC
         let unitBase = 0;
         let product = null;
-
         if (inputs.digitalProductId === 'custom') {
             unitBase = parseFloat(inputs.unitPrice) || 0;
             product = { name: inputs.customDigitalName || 'Custom Digital', width: inputs.width, height: inputs.height, binding: 'None' };
@@ -557,21 +537,18 @@ export default function App() {
             product = digitalProducts.find(p => p.id === inputs.digitalProductId);
             if (product) unitBase = product.basePrice + ((product.perPagePrice || 0) * (parseInt(inputs.pageCount) || 0));
         }
-
         let bindingCost = 0;
         if (inputs.bindingType === 'Coil') bindingCost = FINISHING_RATES.coil_binding;
         if (inputs.bindingType === 'Staple') bindingCost = FINISHING_RATES.stapling;
-
         const singleCost = unitBase + bindingCost;
         const totalSellPrice = singleCost * qty;
-        
         return {
             specs: { type: 'digital', product: product },
             costs: { print: totalSellPrice },
             totalSellPrice: totalSellPrice,
             unitPrice: singleCost,
             production: null,
-            profitability: { grossMargin: 0, marginPercent: 0 } // No COGS for digital yet
+            profitability: { grossMargin: 0, marginPercent: 0 } 
         };
     }
   }, [inputs, quoteType, digitalProducts]);
@@ -608,20 +585,24 @@ export default function App() {
       total_price: calculationResult.totalSellPrice,
       customer_name: customer.name || "Walk-in", 
       qbo_customer_id: customer.id || "", 
+      // 🟢 ADDED CONTACT DETAILS TO PAYLOAD
+      customer_email: customer.email || "",
+      customer_phone: customer.phone || "",
+      shipping_address: customer.shipAddr ? (typeof customer.shipAddr === 'object' ? JSON.stringify(customer.shipAddr) : customer.shipAddr) : "",
+      
       art_file_link: inputs.artFileUrl || "", 
       item_details: itemData
     };
 
     try {
       const response = await fetch(targetUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (response.ok) { setSubmitStatus('success'); setTimeout(() => setSubmitStatus('idle'), 3000); if (config.airtableBaseId) fetchJobs(); setCustomer({ id: '', name: '' }); setInputs(prev => ({...prev, artFileUrl: ''})); } else { setSubmitStatus('error'); }
+      if (response.ok) { setSubmitStatus('success'); setTimeout(() => setSubmitStatus('idle'), 3000); if (config.airtableBaseId) fetchJobs(); setCustomer({ id: '', name: '', email: '', phone: '', shipAddr: null }); setInputs(prev => ({...prev, artFileUrl: ''})); } else { setSubmitStatus('error'); }
     } catch (error) { setSubmitStatus('error'); }
   };
 
   const handleInputChange = (e) => { const { name, value, type, checked } = e.target; setInputs(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value })); };
   const handleConfigChange = (e) => { const { name, value } = e.target; setConfig(prev => ({ ...prev, [name]: value })); };
-
-  // Admin Form Handler
+  
   const handleAddProduct = (e) => {
       e.preventDefault();
       const newId = newProduct.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
@@ -641,12 +622,10 @@ export default function App() {
           <button onClick={() => setViewMode('quote')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'quote' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}><DollarSign size={16} /> Quoter</button>
           <button onClick={() => setViewMode('production')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'production' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}><Package size={16} /> Ticket</button>
           <button onClick={() => { setViewMode('dashboard'); fetchJobs(); }} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'dashboard' ? 'bg-emerald-100 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'}`}><Kanban size={16} /> Shop Dashboard</button>
-          {/* Hidden Admin Button */}
           <button onClick={() => setViewMode('admin')} className={`p-2 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-50`} title="Product Admin"><Settings size={16} /></button>
         </div>
       </header>
 
-      {/* 🟢 ADMIN VIEW */}
       {viewMode === 'admin' && (
           <main className="max-w-7xl mx-auto">
               <h2 className="text-2xl font-bold mb-6">Product Administration</h2>
@@ -680,10 +659,9 @@ export default function App() {
 
       {viewMode === 'dashboard' && (
         <main className="max-w-7xl mx-auto relative no-print">
-          {/* ... Dashboard Content (Keep existing dashboard code here, I'll include it in full file context if needed, but for brevity assuming same logic as prev response) ... */}
+          {/* ... (Dashboard code identical to previous, just re-pasting context not needed unless you want changes) ... */}
            {(!config.airtableBaseId || !config.airtablePat || showSettings) ? (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6">
-               {/* Config Inputs */}
                <div className="flex justify-between items-center mb-2"><h3 className="font-bold text-slate-600">Connection Settings</h3>{showSettings && <button onClick={() => setShowSettings(false)} className="text-xs text-slate-400 underline">Close</button>}</div>
                <div className="flex flex-col md:flex-row gap-4 items-end mb-4">
                 <div className="flex-1 w-full"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Airtable Base ID</label><input type="text" name="airtableBaseId" value={config.airtableBaseId} onChange={handleConfigChange} placeholder="appXXXXXXXXXXXXXX" className="w-full text-sm border-slate-300 rounded-md font-mono" /></div>
@@ -779,11 +757,19 @@ export default function App() {
                           const clientName = getValue(selectedJob, ['Client_Name', 'Client Name', 'Client', 'Customer_Name', 'Customer Name', 'Customer', 'Company', 'Business Name', 'Client', 'Account', 'Account Name', 'Name', 'Display Name', 'DisplayName'], "Walk-in Customer");
                           const dueDate = getValue(selectedJob, ['Due_Date', 'Due Date', 'DueDate', 'Deadline', 'Date Due', 'Ship Date', 'Target Date', 'Delivery Date', 'Date Needed', 'Order Date', 'Order_Date'], null);
                           const jobName = getValue(selectedJob, ['Project_Name', 'Project Name', 'Job Name', 'Name'], "UNTITLED JOB");
+                          
+                          // 🟢 RESOLVE NEW CONTACT FIELDS
+                          const email = getValue(selectedJob, ['Customer Email', 'Email', 'Contact Email', 'Primary Email'], null);
+                          const phone = getValue(selectedJob, ['Customer Phone', 'Phone', 'Contact Phone', 'Mobile'], null);
+                          const shipAddr = getValue(selectedJob, ['Shipping Address', 'Ship To', 'Address', 'Ship Address'], null);
 
                           const ticketData = {
                               jobName: jobName,
                               clientName: clientName,
                               dueDate: dueDate,
+                              email: email,
+                              phone: phone,
+                              shipAddr: shipAddr,
                               material: resolve(['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A'),
                               width: resolve(['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0'),
                               height: resolve(['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0'),
@@ -792,6 +778,8 @@ export default function App() {
                               cutType: resolve(['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None'),
                               lamination: resolve(['Lamination', 'lamination', 'Laminate'], false),
                               grommets: resolve(['Grommets', 'grommets', 'Grommet'], false),
+                              binding: resolve(['Binding', 'binding', 'Bind'], null),
+                              pages: resolve(['Pages', 'pages', 'Page Count'], 0),
                               artFileUrl: resolve(['Art_File_Link', 'Art File', 'File'], '')
                           };
 
@@ -848,6 +836,7 @@ export default function App() {
       {(viewMode === 'quote' || viewMode === 'production') && (
         <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
           <div className="lg:col-span-5 space-y-6">
+            
             {/* CUSTOMER SEARCH CARD */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-emerald-500">
                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><User size={18} className="text-emerald-600" /> Customer</h2>
@@ -1037,6 +1026,11 @@ export default function App() {
                             jobName: inputs.jobName,
                             clientName: customer.name || "Walk-in Customer",
                             dueDate: inputs.dueDate,
+                            // 🟢 Pass contact info for Preview
+                            email: customer.email,
+                            phone: customer.phone,
+                            shipAddr: customer.shipAddr,
+                            
                             material: quoteType === 'large_format' ? inputs.material : (inputs.digitalProductId === 'custom' ? inputs.customDigitalName : digitalProducts.find(p => p.id === inputs.digitalProductId)?.name),
                             width: inputs.width,
                             height: inputs.height,
