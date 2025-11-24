@@ -116,20 +116,19 @@ const safeFormatDate = (dateInput) => {
 };
 
 const getDueDateStatus = (dateInput) => {
-  const rawDate = safeFormatDate(dateInput); // reuse safe formatter to get string first? No, need object
   if (!dateInput) return null;
   
-  let raw = dateInput;
-  while (Array.isArray(raw)) {
-      if (raw.length === 0) return null;
-      raw = raw[0];
+  let rawDate = dateInput;
+  while (Array.isArray(rawDate)) {
+      if (rawDate.length === 0) return null;
+      rawDate = rawDate[0];
   }
 
   let due;
-  if (typeof raw === 'string' && raw.match(/^\d{4}-\d{2}-\d{2}$/)) {
-     due = new Date(raw + 'T12:00:00');
+  if (typeof rawDate === 'string' && rawDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+     due = new Date(rawDate + 'T12:00:00');
   } else {
-     due = new Date(raw);
+     due = new Date(rawDate);
   }
 
   if (isNaN(due.getTime())) return null;
@@ -440,9 +439,11 @@ export default function App() {
     const height = parseFloat(inputs.height) || 0;
     const qty = parseInt(inputs.quantity) || 0;
     
-    // Return empty safe object if dimensions invalid, but DO NOT RETURN NULL
+    // Always return a safe object structure, never null/undefined
+    const safeResult = { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
+
     if (width === 0 || height === 0 || qty === 0 || !matData) {
-        return { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
+        return safeResult;
     }
 
     const itemSqFt = (width * height) / 144;
