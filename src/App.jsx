@@ -127,7 +127,6 @@ const getDueDateStatus = (dateInput) => {
   return { color: 'bg-slate-100 text-slate-600 border-slate-200', label: due.toLocaleDateString(undefined, {month:'short', day:'numeric'}), icon: Calendar };
 };
 
-// 🟢 SMART FIELD RESOLVER (IMPROVED for Arrays/Lookups)
 const getValue = (record, keys, defaultVal = null) => {
     if (!record || !record.fields) return defaultVal;
     for (const key of keys) {
@@ -145,16 +144,13 @@ const getValue = (record, keys, defaultVal = null) => {
     return defaultVal;
 };
 
-// Helper Component for the Ticket UI
 const ProductionTicketCard = ({ data }) => {
     const formattedDate = safeFormatDate(data.dueDate) || "N/A";
     
-    // Format Address Helper
     const formatAddress = (addr) => {
         if (!addr) return null;
         if (typeof addr === 'string') return addr;
         if (typeof addr === 'object') {
-            // Handle QBO Address Object
             const line1 = addr.Line1 || '';
             const city = addr.City || '';
             const state = addr.CountrySubDivisionCode || '';
@@ -163,7 +159,6 @@ const ProductionTicketCard = ({ data }) => {
         }
         return null;
     };
-
     const shipAddress = formatAddress(data.shipAddr);
 
     return (
@@ -172,8 +167,6 @@ const ProductionTicketCard = ({ data }) => {
                 <div>
                     <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight">{data.jobName || "UNTITLED JOB"}</h2>
                     <p className="text-lg font-bold text-slate-600 mt-1">{data.clientName}</p>
-                    
-                    {/* 🟢 CONTACT INFO SECTION */}
                     {(data.email || data.phone || shipAddress) && (
                         <div className="mt-3 text-xs text-slate-500 space-y-1 font-mono">
                             {data.email && <div className="flex items-center gap-2"><Mail size={12} /> {data.email}</div>}
@@ -187,7 +180,6 @@ const ProductionTicketCard = ({ data }) => {
                     <div className="text-xl font-mono font-bold text-red-600">{formattedDate}</div>
                 </div>
             </div>
-
             <div className="grid grid-cols-12 gap-6 mb-8">
                 <div className="col-span-8">
                     <div className="mb-6">
@@ -211,7 +203,6 @@ const ProductionTicketCard = ({ data }) => {
                     <div className="text-6xl font-black text-slate-900">{data.quantity}</div>
                 </div>
             </div>
-
             <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 mb-6">
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Finishing & Production Notes</label>
                 <div className="flex flex-wrap gap-3">
@@ -219,16 +210,12 @@ const ProductionTicketCard = ({ data }) => {
                     {(data.cutType === 'Rectangular' || !data.cutType) && <span className="px-3 py-1 bg-slate-200 text-slate-600 font-bold rounded border border-slate-300">RECTANGULAR CUT</span>}
                     {data.lamination && <span className="px-3 py-1 bg-blue-100 text-blue-800 font-bold rounded border border-blue-200 flex items-center gap-1"><Layers size={14} /> LAMINATED</span>}
                     {data.grommets && <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold rounded border border-emerald-200 flex items-center gap-1"><CircleIcon /> GROMMETS</span>}
-                    
-                    {/* Digital Finishing */}
                     {data.binding === 'Coil' && <span className="px-3 py-1 bg-orange-100 text-orange-800 font-bold rounded border border-orange-200 flex items-center gap-1"><BookOpen size={14} /> COIL BOUND</span>}
                     {data.binding === 'Staple' && <span className="px-3 py-1 bg-orange-100 text-orange-800 font-bold rounded border border-orange-200 flex items-center gap-1">STAPLED</span>}
                     {data.pages > 0 && <span className="px-3 py-1 bg-slate-200 text-slate-800 font-bold rounded border border-slate-300">{data.pages} PAGES</span>}
-
                     {!data.lamination && !data.grommets && !data.binding && (data.cutType === 'Rectangular' || !data.cutType) && <span className="text-sm text-slate-400 italic">Standard Finishing</span>}
                 </div>
             </div>
-
             {data.artFileUrl && (
                 <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex items-center gap-3">
                     <div className="bg-indigo-100 p-2 rounded"><FileText size={20} className="text-indigo-600" /></div>
@@ -276,7 +263,6 @@ export default function App() {
     bindingType: 'None'
   });
 
-  // 🟢 UPDATED CUSTOMER STATE
   const [customer, setCustomer] = useState({ id: '', name: '', email: '', phone: '', shipAddr: null });
   const [customerQuery, setCustomerQuery] = useState('');
   const [customerResults, setCustomerResults] = useState([]);
@@ -336,7 +322,6 @@ export default function App() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // 🟢 UPDATED SEARCH LOGIC TO EXTRACT QBO FIELDS
   const searchCustomers = async () => {
     const targetUrl = config.searchWebhookUrl;
     if (!targetUrl) { alert("Please add your Customer Search Webhook URL."); return; }
@@ -360,7 +345,6 @@ export default function App() {
         if (!Array.isArray(results) && (data.id || data.Id || data.ID || data.DisplayName)) results = [data];
       }
       
-      // 🟢 EXTRACT EXTRA FIELDS
       const normalizedResults = Array.isArray(results) ? results.map(c => ({
          id: c.id || c.Id || c.ID || 'unknown',
          DisplayName: c.DisplayName || c.name || c.FullyQualifiedName || 'Unknown Name',
@@ -475,25 +459,22 @@ export default function App() {
   };
 
   const calculationResult = useMemo(() => {
+    const matData = MATERIALS[inputs.material] || Object.values(MATERIALS)[0];
+    const width = parseFloat(inputs.width) || 0;
+    const height = parseFloat(inputs.height) || 0;
     const qty = parseInt(inputs.quantity) || 0;
     
-    if (quoteType === 'large_format') {
-        const matData = MATERIALS[inputs.material] || Object.values(MATERIALS)[0];
-        const width = parseFloat(inputs.width) || 0;
-        const height = parseFloat(inputs.height) || 0;
-        
-        if (width === 0 || height === 0 || qty === 0 || !matData) {
-            return { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
-        }
+    // 🟢 SAFE RETURN: Always return a valid object even if inputs are missing
+    const emptyResult = { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
 
+    if (quoteType === 'large_format') {
+        if (width === 0 || height === 0 || qty === 0 || !matData) return emptyResult;
         const itemSqFt = (width * height) / 144;
         const totalSqFt = itemSqFt * qty;
         let tierRate = 0;
         if (matData.tiers) { for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } } }
-        
         let basePrintCost = totalSqFt * tierRate;
         if (inputs.sides === '2') basePrintCost *= DOUBLE_SIDED_MULTIPLIER;
-        
         const costs = { print: basePrintCost, setup: GLOBAL_SETUP_FEE, lamination: 0, grommets: 0, contour: 0 };
         if (inputs.addLamination && matData.can_laminate) { 
               let lamCost = totalSqFt * FINISHING_RATES.lamination; 
@@ -502,11 +483,9 @@ export default function App() {
         }
         if (inputs.addGrommets) costs.grommets = qty * inputs.grommetsPerSign * FINISHING_RATES.grommets;
         if (inputs.cutType === 'Contour') costs.contour = CONTOUR_SETUP_FEE;
-        
         const totalSellPrice = Object.values(costs).reduce((a, b) => a + b, 0);
         const unitPrice = totalSellPrice / qty;
         let bestSheet = null;
-        
         if (matData && matData.sheets) {
           let bestCost = Infinity;
           matData.sheets.forEach(sheet => {
@@ -546,12 +525,55 @@ export default function App() {
             specs: { type: 'digital', product: product },
             costs: { print: totalSellPrice },
             totalSellPrice: totalSellPrice,
-            unitPrice: singleCost,
+            unitPrice: singleCost || 0,
             production: null,
             profitability: { grossMargin: 0, marginPercent: 0 } 
         };
     }
   }, [inputs, quoteType, digitalProducts]);
+
+  const fetchJobs = async () => {
+    setFetchError(null);
+    const baseId = config.airtableBaseId; const pat = config.airtablePat;
+    if (!baseId || !pat) return;
+    const tableName = config.airtableTableName || 'Jobs';
+    setLoadingJobs(true);
+    try {
+      const encodedTable = encodeURIComponent(tableName);
+      const response = await fetch(`https://api.airtable.com/v0/${baseId}/${encodedTable}`, { headers: { Authorization: `Bearer ${pat}` } });
+      if (!response.ok) throw new Error(`Airtable Error: ${response.statusText}`);
+      const data = await response.json();
+      setJobs(data.records);
+    } catch (error) { setFetchError(error.message); } finally { setLoadingJobs(false); }
+  };
+
+  const fetchLineItems = async (job) => {
+    setLoadingDetails(true); setJobLineItems([]);
+    const tableName = config.airtableLineItemsName || 'Line Items'; 
+    const baseId = config.airtableBaseId; 
+    const pat = config.airtablePat;
+    const linkedField = config.airtableLinkedFieldName || 'Job_Link';
+    const encodedTable = encodeURIComponent(tableName);
+    try {
+        let url = '';
+        const possibleLinkCols = ['Line Items', 'LineItems', 'Items', 'Line_Items'];
+        let linkedIds = [];
+        for (const key of possibleLinkCols) {
+            if (job.fields[key] && Array.isArray(job.fields[key])) { linkedIds = job.fields[key]; break; }
+        }
+        if (linkedIds.length > 0) {
+            const formula = `OR(${linkedIds.map(id => `RECORD_ID()='${id}'`).join(',')})`;
+            url = `https://api.airtable.com/v0/${baseId}/${encodedTable}?filterByFormula=${encodeURIComponent(formula)}`;
+        } else {
+            const filterFormula = `filterByFormula=${encodeURIComponent(`{${linkedField}}='${job.id}'`)}`;
+            url = `https://api.airtable.com/v0/${baseId}/${encodedTable}?${filterFormula}`;
+        }
+        const response = await fetch(url, { headers: { Authorization: `Bearer ${pat}` } });
+        if (response.ok) { const data = await response.json(); setJobLineItems(data.records); }
+    } catch (error) { console.error("Fetch Line Items Error:", error); } finally { setLoadingDetails(false); }
+  };
+
+  const handleJobClick = (job) => { setSelectedJob(job); fetchLineItems(job); };
 
   const handleSubmit = async () => {
     const targetUrl = config.webhookUrl;
@@ -581,15 +603,14 @@ export default function App() {
     const payload = {
       job_name: inputs.jobName || "Untitled Job",
       order_date: new Date().toISOString().split('T')[0],
-      due_date: inputs.dueDate, 
+      // 🟢 SAFE DATE PAYLOAD: Send null if empty string
+      due_date: inputs.dueDate || null,
       total_price: calculationResult.totalSellPrice,
       customer_name: customer.name || "Walk-in", 
       qbo_customer_id: customer.id || "", 
-      // 🟢 ADDED CONTACT DETAILS TO PAYLOAD
       customer_email: customer.email || "",
       customer_phone: customer.phone || "",
       shipping_address: customer.shipAddr ? (typeof customer.shipAddr === 'object' ? JSON.stringify(customer.shipAddr) : customer.shipAddr) : "",
-      
       art_file_link: inputs.artFileUrl || "", 
       item_details: itemData
     };
@@ -636,6 +657,7 @@ export default function App() {
                       <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Width</label><input type="number" step="0.1" className="w-full border p-2 rounded text-sm" value={newProduct.width} onChange={e => setNewProduct({...newProduct, width: e.target.value})} /></div>
                       <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Height</label><input type="number" step="0.1" className="w-full border p-2 rounded text-sm" value={newProduct.height} onChange={e => setNewProduct({...newProduct, height: e.target.value})} /></div>
                       <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Base Price ($)</label><input type="number" step="0.01" className="w-full border p-2 rounded text-sm" value={newProduct.basePrice} onChange={e => setNewProduct({...newProduct, basePrice: e.target.value})} /></div>
+                      <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Per Page ($)</label><input type="number" step="0.01" className="w-full border p-2 rounded text-sm" value={newProduct.perPagePrice} onChange={e => setNewProduct({...newProduct, perPagePrice: e.target.value})} /></div>
                       <div><button type="submit" className="w-full bg-blue-600 text-white p-2 rounded text-sm font-bold hover:bg-blue-700">Add</button></div>
                   </form>
               </div>
@@ -659,7 +681,6 @@ export default function App() {
 
       {viewMode === 'dashboard' && (
         <main className="max-w-7xl mx-auto relative no-print">
-          {/* ... (Dashboard code identical to previous, just re-pasting context not needed unless you want changes) ... */}
            {(!config.airtableBaseId || !config.airtablePat || showSettings) ? (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6">
                <div className="flex justify-between items-center mb-2"><h3 className="font-bold text-slate-600">Connection Settings</h3>{showSettings && <button onClick={() => setShowSettings(false)} className="text-xs text-slate-400 underline">Close</button>}</div>
@@ -728,78 +749,102 @@ export default function App() {
                           </div>
                       </div>
                       
+                      {/* 🟢 RESOLVE JOB-LEVEL DATA ONCE FOR BOTH BANNER AND TICKET */}
                       {(() => {
-                          if (loadingDetails) {
-                              return <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching specs...</p></div>;
-                          }
-                          const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
-                          let jsonSpecs = {};
-                          try {
-                              const potentialKeys = ['Production_Specs_JSON', 'Item_Details_JSON', 'Details_JSON', 'Specs_JSON', 'Item_Details', 'Item Details', 'JSON'];
-                              let jsonField = null;
-                              for (const key of potentialKeys) { if (item.fields[key]) { jsonField = item.fields[key]; break; } }
-                              if (jsonField) {
-                                  const parsed = typeof jsonField === 'object' ? jsonField : JSON.parse(jsonField);
-                                  jsonSpecs = parsed.item_details || parsed; 
-                              }
-                          } catch(e) { console.warn("JSON Parse Error", e); }
-
-                          const resolve = (keys, defaultVal) => {
-                              const fieldVal = getValue(item, keys);
-                              if (fieldVal !== undefined && fieldVal !== null && fieldVal !== "") return fieldVal;
-                              for (const k of keys) {
-                                  if (jsonSpecs[k] !== undefined) return jsonSpecs[k];
-                                  if (jsonSpecs[k.toLowerCase()] !== undefined) return jsonSpecs[k.toLowerCase()];
-                              }
-                              return defaultVal;
-                          };
-
-                          const clientName = getValue(selectedJob, ['Client_Name', 'Client Name', 'Client', 'Customer_Name', 'Customer Name', 'Customer', 'Company', 'Business Name', 'Client', 'Account', 'Account Name', 'Name', 'Display Name', 'DisplayName'], "Walk-in Customer");
-                          const dueDate = getValue(selectedJob, ['Due_Date', 'Due Date', 'DueDate', 'Deadline', 'Date Due', 'Ship Date', 'Target Date', 'Delivery Date', 'Date Needed', 'Order Date', 'Order_Date'], null);
-                          const jobName = getValue(selectedJob, ['Project_Name', 'Project Name', 'Job Name', 'Name'], "UNTITLED JOB");
+                          // Resolve Job Level Fields
+                          const resolvedDueDate = getValue(selectedJob, ['Due_Date', 'Due Date', 'DueDate', 'Deadline', 'Date Due', 'Ship Date', 'Target Date', 'Delivery Date', 'Date Needed', 'Order Date', 'Order_Date'], null);
                           
-                          // 🟢 RESOLVE NEW CONTACT FIELDS
-                          const email = getValue(selectedJob, ['Customer Email', 'Email', 'Contact Email', 'Primary Email'], null);
-                          const phone = getValue(selectedJob, ['Customer Phone', 'Phone', 'Contact Phone', 'Mobile'], null);
-                          const shipAddr = getValue(selectedJob, ['Shipping Address', 'Ship To', 'Address', 'Ship Address'], null);
-
-                          const ticketData = {
-                              jobName: jobName,
-                              clientName: clientName,
-                              dueDate: dueDate,
-                              email: email,
-                              phone: phone,
-                              shipAddr: shipAddr,
-                              material: resolve(['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A'),
-                              width: resolve(['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0'),
-                              height: resolve(['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0'),
-                              quantity: resolve(['Quantity', 'Qty', 'quantity', 'Count'], '0'),
-                              sides: resolve(['Sides', 'Print Sides', 'sides'], '1'),
-                              cutType: resolve(['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None'),
-                              lamination: resolve(['Lamination', 'lamination', 'Laminate'], false),
-                              grommets: resolve(['Grommets', 'grommets', 'Grommet'], false),
-                              binding: resolve(['Binding', 'binding', 'Bind'], null),
-                              pages: resolve(['Pages', 'pages', 'Page Count'], 0),
-                              artFileUrl: resolve(['Art_File_Link', 'Art File', 'File'], '')
+                          // Helper to format date for banner
+                          const formatBannerDate = (d) => {
+                              return safeFormatDate(d);
                           };
 
                           return (
-                              <div className="p-4 bg-yellow-50/50 rounded-xl">
-                                  <ProductionTicketCard data={ticketData} />
-                                  {jobLineItems.length > 1 && (
-                                      <div className="mt-8 border-t pt-6">
-                                          <h4 className="font-bold text-slate-500 text-sm uppercase mb-4">Additional Items in this Job</h4>
-                                          <div className="space-y-2">
-                                              {jobLineItems.slice(1).map((subItem, idx) => (
-                                                  <div key={subItem.id} className="bg-white p-3 rounded border text-sm flex justify-between">
-                                                      <span>{getValue(subItem, ['Material_Type', 'Material'])} ({getValue(subItem, ['Width_In', 'Width'])}" x {getValue(subItem, ['Height_In', 'Height'])}")</span>
-                                                      <span className="font-bold">Qty: {getValue(subItem, ['Quantity', 'Qty'])}</span>
-                                                  </div>
-                                              ))}
-                                          </div>
+                              <>
+                                  {/* 🟢 AMBER DUE DATE BANNER */}
+                                  {resolvedDueDate && (
+                                      <div className="bg-amber-50 border border-amber-100 rounded p-3 mb-4 flex items-center gap-2 text-amber-800 font-bold text-sm">
+                                          <Clock size={16} /> Due: {formatBannerDate(resolvedDueDate)}
                                       </div>
                                   )}
-                              </div>
+
+                                  {/* 🟢 TICKET VIEW RENDERER */}
+                                  {(() => {
+                                      if (loadingDetails) {
+                                          return <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching specs...</p></div>;
+                                      }
+
+                                      // Data Preparation
+                                      const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
+                                      let jsonSpecs = {};
+                                      try {
+                                          const potentialKeys = ['Production_Specs_JSON', 'Item_Details_JSON', 'Details_JSON', 'Specs_JSON', 'Item_Details', 'Item Details', 'JSON'];
+                                          let jsonField = null;
+                                          for (const key of potentialKeys) { if (item.fields[key]) { jsonField = item.fields[key]; break; } }
+                                          if (jsonField) {
+                                              const parsed = typeof jsonField === 'object' ? jsonField : JSON.parse(jsonField);
+                                              jsonSpecs = parsed.item_details || parsed; 
+                                          }
+                                      } catch(e) { console.warn("JSON Parse Error", e); }
+
+                                      const resolve = (keys, defaultVal) => {
+                                          const fieldVal = getValue(item, keys);
+                                          if (fieldVal !== undefined && fieldVal !== null && fieldVal !== "") return fieldVal;
+                                          for (const k of keys) {
+                                              if (jsonSpecs[k] !== undefined) return jsonSpecs[k];
+                                              if (jsonSpecs[k.toLowerCase()] !== undefined) return jsonSpecs[k.toLowerCase()];
+                                          }
+                                          return defaultVal;
+                                      };
+
+                                      const clientName = getValue(selectedJob, ['Client_Name', 'Client Name', 'Client', 'Customer_Name', 'Customer Name', 'Customer', 'Company', 'Business Name', 'Client', 'Account', 'Account Name', 'Name', 'Display Name', 'DisplayName'], "Walk-in Customer");
+                                      const jobName = getValue(selectedJob, ['Project_Name', 'Project Name', 'Job Name', 'Name'], "UNTITLED JOB");
+                                      
+                                      // 🟢 Resolve Contact Info
+                                      const email = getValue(selectedJob, ['Customer Email', 'Email', 'Contact Email', 'Primary Email', 'Customer_Email'], null);
+                                      const phone = getValue(selectedJob, ['Customer Phone', 'Phone', 'Contact Phone', 'Mobile', 'Customer_Phone'], null);
+                                      const shipAddr = getValue(selectedJob, ['Shipping Address', 'Ship To', 'Address', 'Ship Address', 'Shipping_Address'], null);
+
+                                      const ticketData = {
+                                          jobName: jobName,
+                                          clientName: clientName,
+                                          dueDate: resolvedDueDate, 
+                                          email: email,
+                                          phone: phone,
+                                          shipAddr: shipAddr,
+                                          material: resolve(['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A'),
+                                          width: resolve(['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0'),
+                                          height: resolve(['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0'),
+                                          quantity: resolve(['Quantity', 'Qty', 'quantity', 'Count'], '0'),
+                                          sides: resolve(['Sides', 'Print Sides', 'sides'], '1'),
+                                          cutType: resolve(['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None'),
+                                          lamination: resolve(['Lamination', 'lamination', 'Laminate'], false),
+                                          grommets: resolve(['Grommets', 'grommets', 'Grommet'], false),
+                                          binding: resolve(['Binding', 'binding', 'Bind'], null),
+                                          pages: resolve(['Pages', 'pages', 'Page Count'], 0),
+                                          artFileUrl: resolve(['Art_File_Link', 'Art File', 'File'], '')
+                                      };
+
+                                      return (
+                                          <div className="p-4 bg-yellow-50/50 rounded-xl">
+                                              <ProductionTicketCard data={ticketData} />
+                                              {jobLineItems.length > 1 && (
+                                                  <div className="mt-8 border-t pt-6">
+                                                      <h4 className="font-bold text-slate-500 text-sm uppercase mb-4">Additional Items in this Job</h4>
+                                                      <div className="space-y-2">
+                                                          {jobLineItems.slice(1).map((subItem, idx) => (
+                                                              <div key={subItem.id} className="bg-white p-3 rounded border text-sm flex justify-between">
+                                                                  <span>{getValue(subItem, ['Material_Type', 'Material'])} ({getValue(subItem, ['Width_In', 'Width'])}" x {getValue(subItem, ['Height_In', 'Height'])}")</span>
+                                                                  <span className="font-bold">Qty: {getValue(subItem, ['Quantity', 'Qty'])}</span>
+                                                              </div>
+                                                          ))}
+                                                      </div>
+                                                  </div>
+                                              )}
+                                          </div>
+                                      );
+                                  })()}
+                              </>
                           );
                       })()}
 
@@ -836,16 +881,27 @@ export default function App() {
       {(viewMode === 'quote' || viewMode === 'production') && (
         <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
           <div className="lg:col-span-5 space-y-6">
-            
             {/* CUSTOMER SEARCH CARD */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-emerald-500">
                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><User size={18} className="text-emerald-600" /> Customer</h2>
                {customer.name ? (
-                  <div className="flex items-center justify-between bg-emerald-50 p-3 rounded-lg border border-emerald-100"><div className="flex items-center gap-3"><div className="bg-emerald-200 text-emerald-800 p-2 rounded-full"><Check size={16} /></div><div><p className="font-bold text-emerald-900 text-sm">{customer.name}</p><p className="text-xs text-emerald-600">QBO ID: {customer.id}</p></div></div><button onClick={() => setCustomer({id:'', name:''})} className="text-emerald-400 hover:text-emerald-700"><X size={16} /></button></div>
+                  <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100 relative">
+                      <button onClick={() => setCustomer({id:'', name:''})} className="absolute top-2 right-2 text-emerald-400 hover:text-emerald-700"><X size={16} /></button>
+                      <div className="flex items-center gap-3 mb-2">
+                          <div className="bg-emerald-200 text-emerald-800 p-2 rounded-full"><Check size={16} /></div>
+                          <div><p className="font-bold text-emerald-900 text-sm">{customer.name}</p><p className="text-xs text-emerald-600">QBO ID: {customer.id}</p></div>
+                      </div>
+                      {/* 🟢 Show Contact Info */}
+                      {(customer.email || customer.phone) && (
+                          <div className="mt-2 pt-2 border-t border-emerald-100 text-xs text-emerald-700 space-y-1">
+                              {customer.email && <div className="flex items-center gap-2"><Mail size={12} /> {customer.email}</div>}
+                              {customer.phone && <div className="flex items-center gap-2"><Phone size={12} /> {customer.phone}</div>}
+                          </div>
+                      )}
+                  </div>
                ) : (
                   <div className="relative">
                      <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
-                     {/* DROPDOWN RESULTS */}
                      {customerResults.length > 0 && ( 
                         <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-60 overflow-y-auto">
                             {customerResults.map(res => (
