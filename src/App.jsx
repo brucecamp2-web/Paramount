@@ -28,7 +28,10 @@ import {
   Calendar,
   MoreHorizontal,
   AlertCircle,
-  Code
+  Code,
+  Plus,
+  BookOpen,
+  Save
 } from 'lucide-react';
 
 // --- ⚠️ HARDCODED CONFIGURATION ⚠️ ---
@@ -47,7 +50,9 @@ const DOUBLE_SIDED_MULTIPLIER = 1.6;
 const FINISHING_RATES = {
   grommets: 0.25,
   lamination: 2.50,
-  lamination_min: 20.00
+  lamination_min: 20.00,
+  coil_binding: 5.00, // Per book
+  stapling: 0.50      // Per book
 };
 
 const DASHBOARD_COLUMNS = [
@@ -55,6 +60,14 @@ const DASHBOARD_COLUMNS = [
   { id: 'Prepress', label: 'Prepress', match: ['Prepress', 'Approved'], bg: 'bg-blue-50', text: 'text-blue-800', border: 'border-blue-200' },
   { id: 'Production', label: 'Production', match: ['Production'], bg: 'bg-indigo-50', text: 'text-indigo-800', border: 'border-indigo-200' },
   { id: 'Complete', label: 'Complete', match: ['Complete', 'Shipped'], bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-200' }
+];
+
+// 🟢 DEFAULT DIGITAL PRODUCTS (Seed Data)
+const DEFAULT_DIGITAL_PRODUCTS = [
+  { id: 'menu_85_14', name: 'Menu 8.5x14 (Synthetic)', width: 8.5, height: 14, basePrice: 2.50, perPagePrice: 0.00, binding: 'None' },
+  { id: 'booklet_85_11', name: 'Coil Bound Book 8.5x11', width: 8.5, height: 11, basePrice: 5.00, perPagePrice: 0.25, binding: 'Coil' },
+  { id: 'flyer_4_6', name: 'Flyer 4x6 (Cardstock)', width: 4, height: 6, basePrice: 0.45, perPagePrice: 0.00, binding: 'None' },
+  { id: 'biz_card', name: 'Business Cards (Set of 250)', width: 3.5, height: 2, basePrice: 45.00, perPagePrice: 0.00, binding: 'None' }
 ];
 
 const MATERIALS = {
@@ -83,32 +96,21 @@ const MATERIALS = {
 
 const formatCurrency = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0);
 
-const getDaysSince = (dateString) => {
-  if (!dateString) return 0;
-  const diff = new Date() - new Date(dateString);
-  return Math.floor(diff / (1000 * 60 * 60 * 24));
-};
-
-// 🟢 NEW: Safe Date Formatter (Prevents Crashes)
 const safeFormatDate = (dateInput) => {
     if (!dateInput) return "";
     let raw = dateInput;
-    // Unwrap array if lookup field
     while (Array.isArray(raw)) {
         if (raw.length === 0) return "";
         raw = raw[0];
     }
-    
     try {
         let date;
-        // Fix YYYY-MM-DD timezone offset
         if (typeof raw === 'string' && raw.match(/^\d{4}-\d{2}-\d{2}$/)) {
              date = new Date(raw + 'T12:00:00');
         } else {
              date = new Date(raw);
         }
-        
-        if (isNaN(date.getTime())) return ""; // Invalid date
+        if (isNaN(date.getTime())) return ""; 
         return date.toLocaleDateString();
     } catch (e) {
         return "";
@@ -117,26 +119,21 @@ const safeFormatDate = (dateInput) => {
 
 const getDueDateStatus = (dateInput) => {
   if (!dateInput) return null;
-  
   let rawDate = dateInput;
   while (Array.isArray(rawDate)) {
       if (rawDate.length === 0) return null;
       rawDate = rawDate[0];
   }
-
   let due;
   if (typeof rawDate === 'string' && rawDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
      due = new Date(rawDate + 'T12:00:00');
   } else {
      due = new Date(rawDate);
   }
-
   if (isNaN(due.getTime())) return null;
-
   const today = new Date();
   today.setHours(0,0,0,0);
   const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  
   if (diffDays < 0) return { color: 'bg-red-100 text-red-700 border-red-200', label: 'Overdue', icon: AlertCircle };
   if (diffDays === 0) return { color: 'bg-amber-100 text-amber-700 border-amber-200', label: 'Due Today', icon: Clock };
   if (diffDays <= 2) return { color: 'bg-amber-50 text-amber-600 border-amber-200', label: 'Due Soon', icon: Clock };
@@ -165,7 +162,6 @@ const getValue = (record, keys, defaultVal = null) => {
 
 const ProductionTicketCard = ({ data }) => {
     const formattedDate = safeFormatDate(data.dueDate) || "N/A";
-
     return (
         <div className="border-4 border-slate-900 p-6 rounded-xl bg-white shadow-sm text-left">
             <div className="flex justify-between items-start mb-6 border-b-2 border-slate-900 pb-4">
@@ -178,11 +174,10 @@ const ProductionTicketCard = ({ data }) => {
                     <div className="text-xl font-mono font-bold text-red-600">{formattedDate}</div>
                 </div>
             </div>
-
             <div className="grid grid-cols-12 gap-6 mb-8">
                 <div className="col-span-8">
                     <div className="mb-6">
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Material</label>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Product / Material</label>
                         <div className="text-2xl font-bold text-slate-900">{data.material}</div>
                         <div className="text-sm font-bold text-slate-500">{data.sides === '2' || data.sides === 2 ? 'DOUBLE SIDED' : 'SINGLE SIDED'}</div>
                     </div>
@@ -202,18 +197,21 @@ const ProductionTicketCard = ({ data }) => {
                     <div className="text-6xl font-black text-slate-900">{data.quantity}</div>
                 </div>
             </div>
-
             <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 mb-6">
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Finishing & Post-Press</label>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Finishing & Production Notes</label>
                 <div className="flex flex-wrap gap-3">
                     {data.cutType !== 'Rectangular' && data.cutType !== 'None' && <span className="px-3 py-1 bg-pink-100 text-pink-800 font-bold rounded border border-pink-200 flex items-center gap-1"><Scissors size={14} /> {data.cutType || "CONTOUR CUT"}</span>}
-                    {(data.cutType === 'Rectangular' || !data.cutType) && <span className="px-3 py-1 bg-slate-200 text-slate-600 font-bold rounded border border-slate-300">RECTANGULAR CUT</span>}
                     {data.lamination && <span className="px-3 py-1 bg-blue-100 text-blue-800 font-bold rounded border border-blue-200 flex items-center gap-1"><Layers size={14} /> LAMINATED</span>}
                     {data.grommets && <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold rounded border border-emerald-200 flex items-center gap-1"><CircleIcon /> GROMMETS</span>}
-                    {!data.lamination && !data.grommets && (data.cutType === 'Rectangular' || !data.cutType) && <span className="text-sm text-slate-400 italic">No extra finishing</span>}
+                    
+                    {/* Digital Finishing */}
+                    {data.binding === 'Coil' && <span className="px-3 py-1 bg-orange-100 text-orange-800 font-bold rounded border border-orange-200 flex items-center gap-1"><BookOpen size={14} /> COIL BOUND</span>}
+                    {data.binding === 'Staple' && <span className="px-3 py-1 bg-orange-100 text-orange-800 font-bold rounded border border-orange-200 flex items-center gap-1">STAPLED</span>}
+                    {data.pages > 0 && <span className="px-3 py-1 bg-slate-200 text-slate-800 font-bold rounded border border-slate-300">{data.pages} PAGES</span>}
+
+                    {!data.lamination && !data.grommets && !data.binding && (data.cutType === 'Rectangular' || !data.cutType) && <span className="text-sm text-slate-400 italic">Standard Finishing</span>}
                 </div>
             </div>
-
             {data.artFileUrl && (
                 <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex items-center gap-3">
                     <div className="bg-indigo-100 p-2 rounded"><FileText size={20} className="text-indigo-600" /></div>
@@ -230,7 +228,18 @@ const ProductionTicketCard = ({ data }) => {
 };
 
 export default function App() {
-  const [viewMode, setViewMode] = useState('quote'); 
+  const [viewMode, setViewMode] = useState('quote'); // 'quote', 'production', 'dashboard', 'admin'
+  const [quoteType, setQuoteType] = useState('large_format'); // 🟢 'large_format' or 'digital'
+  
+  // Load Digital Products from Storage or Default
+  const [digitalProducts, setDigitalProducts] = useState(() => {
+      if (typeof window !== 'undefined') {
+          const saved = localStorage.getItem('paramount_digital_products');
+          if (saved) return JSON.parse(saved);
+      }
+      return DEFAULT_DIGITAL_PRODUCTS;
+  });
+
   const [inputs, setInputs] = useState({
     jobName: '',
     width: 24,
@@ -243,7 +252,13 @@ export default function App() {
     addGrommets: false,
     grommetsPerSign: 4,
     artFileUrl: '',
-    dueDate: '' 
+    dueDate: '',
+    // 🟢 Digital Specific
+    digitalProductId: '',
+    customDigitalName: '',
+    unitPrice: 0,
+    pageCount: 0,
+    bindingType: 'None'
   });
 
   const [customer, setCustomer] = useState({ id: '', name: '' });
@@ -255,6 +270,9 @@ export default function App() {
   const [uploadError, setUploadError] = useState(null);
   const [showDebug, setShowDebug] = useState(false); 
   const [showSettings, setShowSettings] = useState(false); 
+
+  // Admin State for new product
+  const [newProduct, setNewProduct] = useState({ name: '', width: 0, height: 0, basePrice: 0, perPagePrice: 0, binding: 'None' });
 
   const [config, setConfig] = useState(() => {
     let loadedConfig = { 
@@ -268,9 +286,7 @@ export default function App() {
         airtableLineItemsName: 'Line Items',
         airtableLinkedFieldName: 'Job_Link'
     };
-    
     try { if (typeof window !== 'undefined') { const get = (k) => localStorage.getItem(k) || ''; loadedConfig = { webhookUrl: get('paramount_webhook_url'), searchWebhookUrl: get('paramount_search_webhook_url'), createWebhookUrl: get('paramount_create_webhook_url'), uploadWebhookUrl: get('paramount_upload_webhook_url'), airtableBaseId: get('paramount_at_base'), airtablePat: get('paramount_at_pat'), airtableTableName: get('paramount_at_table') || 'Jobs', airtableLineItemsName: get('paramount_at_lines') || 'Line Items', airtableLinkedFieldName: get('paramount_at_link_col') || 'Job_Link' }; } } catch (e) {}
-    
     if (HARDCODED_SUBMIT_WEBHOOK) loadedConfig.webhookUrl = HARDCODED_SUBMIT_WEBHOOK;
     if (HARDCODED_SEARCH_WEBHOOK) loadedConfig.searchWebhookUrl = HARDCODED_SEARCH_WEBHOOK;
     if (HARDCODED_CREATE_WEBHOOK) loadedConfig.createWebhookUrl = HARDCODED_CREATE_WEBHOOK; 
@@ -291,11 +307,10 @@ export default function App() {
         localStorage.setItem('paramount_at_table', config.airtableTableName);
         localStorage.setItem('paramount_at_lines', config.airtableLineItemsName);
         localStorage.setItem('paramount_at_link_col', config.airtableLinkedFieldName);
+        // Save products
+        localStorage.setItem('paramount_digital_products', JSON.stringify(digitalProducts));
     } } catch (e) { }
-  }, [config]);
-
-  // 🟢 Debug Logging to catch render issues
-  console.log("App Rendering...", { viewMode, inputs });
+  }, [config, digitalProducts]);
 
   const [jobs, setJobs] = useState([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
@@ -307,6 +322,10 @@ export default function App() {
   const [jobLineItems, setJobLineItems] = useState([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // ... (Keep searchCustomers, handleCreateCustomer, selectCustomer, handleFileUpload, handleDragStart, handleDragOver, handleDrop, handleDeleteJob, fetchJobs, fetchLineItems, handleJobClick as is)
+  // To save space I'm skipping re-pasting the unmodified API functions, but in a real file they must be here.
+  // I will re-include them for the full file below to ensure copy-paste works.
 
   const searchCustomers = async () => {
     const targetUrl = config.searchWebhookUrl;
@@ -429,68 +448,6 @@ export default function App() {
     } catch (error) { alert("Failed to delete job: " + error.message); } finally { setIsDeleting(false); }
   };
 
-  const calculationResult = useMemo(() => {
-    // 🟢 QUOTE CRASH FIX: Fallback if material is not found/defined
-    const matData = MATERIALS[inputs.material] || Object.values(MATERIALS)[0];
-    
-    const width = parseFloat(inputs.width) || 0;
-    const height = parseFloat(inputs.height) || 0;
-    const qty = parseInt(inputs.quantity) || 0;
-    
-    // Return empty safe object if dimensions invalid, but DO NOT RETURN NULL
-    if (width === 0 || height === 0 || qty === 0 || !matData) {
-        return { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
-    }
-
-    const itemSqFt = (width * height) / 144;
-    const totalSqFt = itemSqFt * qty;
-    let tierRate = 0;
-    if (matData.tiers) {
-        for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } }
-    }
-    
-    let basePrintCost = totalSqFt * tierRate;
-    if (inputs.sides === '2') basePrintCost *= DOUBLE_SIDED_MULTIPLIER;
-    
-    const costs = { print: basePrintCost, setup: GLOBAL_SETUP_FEE, lamination: 0, grommets: 0, contour: 0 };
-    
-    if (inputs.addLamination) {
-      if (matData.can_laminate) { 
-          let lamCost = totalSqFt * FINISHING_RATES.lamination; 
-          if (lamCost < FINISHING_RATES.lamination_min) lamCost = FINISHING_RATES.lamination_min; 
-          costs.lamination = lamCost; 
-      }
-    }
-    
-    if (inputs.addGrommets) costs.grommets = qty * inputs.grommetsPerSign * FINISHING_RATES.grommets;
-    if (inputs.cutType === 'Contour') costs.contour = CONTOUR_SETUP_FEE;
-    
-    const totalSellPrice = Object.values(costs).reduce((a, b) => a + b, 0);
-    const unitPrice = totalSellPrice / qty;
-    let bestSheet = null;
-    
-    if (matData && matData.sheets) {
-      let bestCost = Infinity;
-      matData.sheets.forEach(sheet => {
-        const sw = sheet.w, sh = sheet.h;
-        const fitA = Math.floor(sw / width) * Math.floor(sh / height);
-        const fitB = Math.floor(sw / height) * Math.floor(sh / width);
-        const perSheet = Math.max(fitA, fitB);
-        if (perSheet > 0) {
-          const sheetsNeeded = Math.ceil(qty / perSheet);
-          const totalMatCost = sheetsNeeded * sheet.cost;
-          if (totalMatCost < bestCost) {
-            bestCost = totalMatCost;
-            bestSheet = { name: sheet.name, costPerSheet: sheet.cost, totalMatCost: totalMatCost, sheetsNeeded: sheetsNeeded, yieldPerSheet: perSheet, orientation: fitB > fitA ? 'Rotated' : 'Standard', waste: (( (sw*sh) - (perSheet * width * height) ) / (sw*sh)) * 100 };
-          }
-        }
-      });
-    }
-    const grossMargin = totalSellPrice - (bestSheet ? bestSheet.totalMatCost : 0);
-    const marginPercent = (grossMargin / totalSellPrice) * 100;
-    return { specs: { totalSqFt, tierRate, itemSqFt }, costs, totalSellPrice, unitPrice, production: bestSheet, profitability: { grossMargin, marginPercent } };
-  }, [inputs]);
-
   const fetchJobs = async () => {
     setFetchError(null);
     const baseId = config.airtableBaseId; const pat = config.airtablePat;
@@ -506,7 +463,6 @@ export default function App() {
     } catch (error) { setFetchError(error.message); } finally { setLoadingJobs(false); }
   };
 
-  // 🟢 SMART FETCH LINE ITEMS: Uses IDs if available, else falls back to formula
   const fetchLineItems = async (job) => {
     setLoadingDetails(true); setJobLineItems([]);
     const tableName = config.airtableLineItemsName || 'Line Items'; 
@@ -514,52 +470,118 @@ export default function App() {
     const pat = config.airtablePat;
     const linkedField = config.airtableLinkedFieldName || 'Job_Link';
     const encodedTable = encodeURIComponent(tableName);
-
     try {
         let url = '';
-        // 🟢 Check if job has direct linked IDs in common fields
         const possibleLinkCols = ['Line Items', 'LineItems', 'Items', 'Line_Items'];
         let linkedIds = [];
         for (const key of possibleLinkCols) {
-            if (job.fields[key] && Array.isArray(job.fields[key])) { 
-                linkedIds = job.fields[key]; 
-                break; 
-            }
+            if (job.fields[key] && Array.isArray(job.fields[key])) { linkedIds = job.fields[key]; break; }
         }
-
         if (linkedIds.length > 0) {
-            // Use RECORD_ID() formula to fetch specific records
             const formula = `OR(${linkedIds.map(id => `RECORD_ID()='${id}'`).join(',')})`;
             url = `https://api.airtable.com/v0/${baseId}/${encodedTable}?filterByFormula=${encodeURIComponent(formula)}`;
         } else {
-            // Fallback to column text matching
             const filterFormula = `filterByFormula=${encodeURIComponent(`{${linkedField}}='${job.id}'`)}`;
             url = `https://api.airtable.com/v0/${baseId}/${encodedTable}?${filterFormula}`;
         }
-
         const response = await fetch(url, { headers: { Authorization: `Bearer ${pat}` } });
-        if (response.ok) { 
-            const data = await response.json(); 
-            setJobLineItems(data.records); 
-        }
+        if (response.ok) { const data = await response.json(); setJobLineItems(data.records); }
     } catch (error) { console.error("Fetch Line Items Error:", error); } finally { setLoadingDetails(false); }
   };
 
   const handleJobClick = (job) => { setSelectedJob(job); fetchLineItems(job); };
 
+  // 🟢 NEW: Dynamic Calculation Result based on Quote Type
+  const calculationResult = useMemo(() => {
+    const qty = parseInt(inputs.quantity) || 0;
+    
+    if (quoteType === 'large_format') {
+        const matData = MATERIALS[inputs.material] || Object.values(MATERIALS)[0];
+        const width = parseFloat(inputs.width) || 0;
+        const height = parseFloat(inputs.height) || 0;
+        
+        if (width === 0 || height === 0 || qty === 0 || !matData) {
+            return { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
+        }
+
+        const itemSqFt = (width * height) / 144;
+        const totalSqFt = itemSqFt * qty;
+        let tierRate = 0;
+        if (matData.tiers) { for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } } }
+        
+        let basePrintCost = totalSqFt * tierRate;
+        if (inputs.sides === '2') basePrintCost *= DOUBLE_SIDED_MULTIPLIER;
+        
+        const costs = { print: basePrintCost, setup: GLOBAL_SETUP_FEE, lamination: 0, grommets: 0, contour: 0 };
+        if (inputs.addLamination && matData.can_laminate) { 
+              let lamCost = totalSqFt * FINISHING_RATES.lamination; 
+              if (lamCost < FINISHING_RATES.lamination_min) lamCost = FINISHING_RATES.lamination_min; 
+              costs.lamination = lamCost; 
+        }
+        if (inputs.addGrommets) costs.grommets = qty * inputs.grommetsPerSign * FINISHING_RATES.grommets;
+        if (inputs.cutType === 'Contour') costs.contour = CONTOUR_SETUP_FEE;
+        
+        const totalSellPrice = Object.values(costs).reduce((a, b) => a + b, 0);
+        const unitPrice = totalSellPrice / qty;
+        let bestSheet = null;
+        
+        if (matData && matData.sheets) {
+          let bestCost = Infinity;
+          matData.sheets.forEach(sheet => {
+            const sw = sheet.w, sh = sheet.h;
+            const fitA = Math.floor(sw / width) * Math.floor(sh / height);
+            const fitB = Math.floor(sw / height) * Math.floor(sh / width);
+            const perSheet = Math.max(fitA, fitB);
+            if (perSheet > 0) {
+              const sheetsNeeded = Math.ceil(qty / perSheet);
+              const totalMatCost = sheetsNeeded * sheet.cost;
+              if (totalMatCost < bestCost) {
+                bestCost = totalMatCost;
+                bestSheet = { name: sheet.name, costPerSheet: sheet.cost, totalMatCost: totalMatCost, sheetsNeeded: sheetsNeeded, yieldPerSheet: perSheet, orientation: fitB > fitA ? 'Rotated' : 'Standard', waste: (( (sw*sh) - (perSheet * width * height) ) / (sw*sh)) * 100 };
+              }
+            }
+          });
+        }
+        const grossMargin = totalSellPrice - (bestSheet ? bestSheet.totalMatCost : 0);
+        const marginPercent = (grossMargin / totalSellPrice) * 100;
+        return { specs: { totalSqFt, tierRate, itemSqFt }, costs, totalSellPrice, unitPrice, production: bestSheet, profitability: { grossMargin, marginPercent } };
+    } else {
+        // 🟢 DIGITAL / SMALL FORMAT LOGIC
+        let unitBase = 0;
+        let product = null;
+
+        if (inputs.digitalProductId === 'custom') {
+            unitBase = parseFloat(inputs.unitPrice) || 0;
+            product = { name: inputs.customDigitalName || 'Custom Digital', width: inputs.width, height: inputs.height, binding: 'None' };
+        } else {
+            product = digitalProducts.find(p => p.id === inputs.digitalProductId);
+            if (product) unitBase = product.basePrice + ((product.perPagePrice || 0) * (parseInt(inputs.pageCount) || 0));
+        }
+
+        let bindingCost = 0;
+        if (inputs.bindingType === 'Coil') bindingCost = FINISHING_RATES.coil_binding;
+        if (inputs.bindingType === 'Staple') bindingCost = FINISHING_RATES.stapling;
+
+        const singleCost = unitBase + bindingCost;
+        const totalSellPrice = singleCost * qty;
+        
+        return {
+            specs: { type: 'digital', product: product },
+            costs: { print: totalSellPrice },
+            totalSellPrice: totalSellPrice,
+            unitPrice: singleCost,
+            production: null,
+            profitability: { grossMargin: 0, marginPercent: 0 } // No COGS for digital yet
+        };
+    }
+  }, [inputs, quoteType, digitalProducts]);
+
   const handleSubmit = async () => {
     const targetUrl = config.webhookUrl;
     if (!targetUrl) { alert("Please enter a Submit Webhook URL."); return; }
     setSubmitStatus('sending');
-    const payload = {
-      job_name: inputs.jobName || "Untitled Job",
-      order_date: new Date().toISOString().split('T')[0],
-      due_date: inputs.dueDate, 
-      total_price: calculationResult.totalSellPrice,
-      customer_name: customer.name || "Walk-in", 
-      qbo_customer_id: customer.id || "", 
-      art_file_link: inputs.artFileUrl || "", 
-      item_details: {
+    
+    const itemData = quoteType === 'large_format' ? {
         material: inputs.material,
         width: inputs.width,
         height: inputs.height,
@@ -569,8 +591,27 @@ export default function App() {
         lamination: inputs.addLamination,
         grommets: inputs.addGrommets,
         production_json: JSON.stringify(calculationResult.production)
-      }
+    } : {
+        material: inputs.digitalProductId === 'custom' ? inputs.customDigitalName : digitalProducts.find(p => p.id === inputs.digitalProductId)?.name,
+        width: inputs.width,
+        height: inputs.height,
+        quantity: inputs.quantity,
+        binding: inputs.bindingType,
+        pages: inputs.pageCount,
+        production_json: JSON.stringify({ type: 'digital', product: inputs.digitalProductId })
     };
+
+    const payload = {
+      job_name: inputs.jobName || "Untitled Job",
+      order_date: new Date().toISOString().split('T')[0],
+      due_date: inputs.dueDate, 
+      total_price: calculationResult.totalSellPrice,
+      customer_name: customer.name || "Walk-in", 
+      qbo_customer_id: customer.id || "", 
+      art_file_link: inputs.artFileUrl || "", 
+      item_details: itemData
+    };
+
     try {
       const response = await fetch(targetUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (response.ok) { setSubmitStatus('success'); setTimeout(() => setSubmitStatus('idle'), 3000); if (config.airtableBaseId) fetchJobs(); setCustomer({ id: '', name: '' }); setInputs(prev => ({...prev, artFileUrl: ''})); } else { setSubmitStatus('error'); }
@@ -579,6 +620,16 @@ export default function App() {
 
   const handleInputChange = (e) => { const { name, value, type, checked } = e.target; setInputs(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value })); };
   const handleConfigChange = (e) => { const { name, value } = e.target; setConfig(prev => ({ ...prev, [name]: value })); };
+
+  // Admin Form Handler
+  const handleAddProduct = (e) => {
+      e.preventDefault();
+      const newId = newProduct.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const productToAdd = { ...newProduct, id: newId, width: parseFloat(newProduct.width), height: parseFloat(newProduct.height), basePrice: parseFloat(newProduct.basePrice), perPagePrice: parseFloat(newProduct.perPagePrice) };
+      setDigitalProducts([...digitalProducts, productToAdd]);
+      setNewProduct({ name: '', width: 0, height: 0, basePrice: 0, perPagePrice: 0, binding: 'None' });
+      alert("Product Added!");
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
@@ -590,12 +641,47 @@ export default function App() {
           <button onClick={() => setViewMode('quote')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'quote' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}><DollarSign size={16} /> Quoter</button>
           <button onClick={() => setViewMode('production')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'production' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}><Package size={16} /> Ticket</button>
           <button onClick={() => { setViewMode('dashboard'); fetchJobs(); }} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${viewMode === 'dashboard' ? 'bg-emerald-100 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'}`}><Kanban size={16} /> Shop Dashboard</button>
+          {/* Hidden Admin Button */}
+          <button onClick={() => setViewMode('admin')} className={`p-2 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-50`} title="Product Admin"><Settings size={16} /></button>
         </div>
       </header>
 
+      {/* 🟢 ADMIN VIEW */}
+      {viewMode === 'admin' && (
+          <main className="max-w-7xl mx-auto">
+              <h2 className="text-2xl font-bold mb-6">Product Administration</h2>
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+                  <h3 className="font-bold mb-4 text-slate-700 flex items-center gap-2"><Plus size={18} /> Add New Digital Product</h3>
+                  <form onSubmit={handleAddProduct} className="grid grid-cols-2 md:grid-cols-6 gap-4 items-end">
+                      <div className="col-span-2"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Product Name</label><input type="text" required className="w-full border p-2 rounded text-sm" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} /></div>
+                      <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Width</label><input type="number" step="0.1" className="w-full border p-2 rounded text-sm" value={newProduct.width} onChange={e => setNewProduct({...newProduct, width: e.target.value})} /></div>
+                      <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Height</label><input type="number" step="0.1" className="w-full border p-2 rounded text-sm" value={newProduct.height} onChange={e => setNewProduct({...newProduct, height: e.target.value})} /></div>
+                      <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Base Price ($)</label><input type="number" step="0.01" className="w-full border p-2 rounded text-sm" value={newProduct.basePrice} onChange={e => setNewProduct({...newProduct, basePrice: e.target.value})} /></div>
+                      <div><button type="submit" className="w-full bg-blue-600 text-white p-2 rounded text-sm font-bold hover:bg-blue-700">Add</button></div>
+                  </form>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                  <table className="w-full text-sm text-left">
+                      <thead className="bg-slate-50 text-slate-500 font-bold uppercase"><tr className="border-b"><th className="p-4">Name</th><th className="p-4">Size</th><th className="p-4">Base Price</th><th className="p-4">Action</th></tr></thead>
+                      <tbody>
+                          {digitalProducts.map((p, i) => (
+                              <tr key={i} className="border-b last:border-0 hover:bg-slate-50">
+                                  <td className="p-4 font-medium">{p.name}</td>
+                                  <td className="p-4">{p.width}" x {p.height}"</td>
+                                  <td className="p-4">${p.basePrice.toFixed(2)}</td>
+                                  <td className="p-4"><button onClick={() => { const n = [...digitalProducts]; n.splice(i, 1); setDigitalProducts(n); }} className="text-red-500 hover:underline">Remove</button></td>
+                              </tr>
+                          ))}
+                      </tbody>
+                  </table>
+              </div>
+          </main>
+      )}
+
       {viewMode === 'dashboard' && (
         <main className="max-w-7xl mx-auto relative no-print">
-          {(!config.airtableBaseId || !config.airtablePat || showSettings) ? (
+          {/* ... Dashboard Content (Keep existing dashboard code here, I'll include it in full file context if needed, but for brevity assuming same logic as prev response) ... */}
+           {(!config.airtableBaseId || !config.airtablePat || showSettings) ? (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6">
                {/* Config Inputs */}
                <div className="flex justify-between items-center mb-2"><h3 className="font-bold text-slate-600">Connection Settings</h3>{showSettings && <button onClick={() => setShowSettings(false)} className="text-xs text-slate-400 underline">Close</button>}</div>
@@ -664,92 +750,68 @@ export default function App() {
                           </div>
                       </div>
                       
-                      {/* 🟢 RESOLVE JOB-LEVEL DATA ONCE FOR BOTH BANNER AND TICKET */}
                       {(() => {
-                          // Resolve Job Level Fields
-                          const resolvedDueDate = getValue(selectedJob, ['Due_Date', 'Due Date', 'DueDate', 'Deadline', 'Date Due', 'Ship Date', 'Target Date', 'Delivery Date', 'Date Needed', 'Order Date', 'Order_Date'], null);
-                          
-                          // Helper to format date for banner
-                          const formatBannerDate = (d) => {
-                              return safeFormatDate(d);
+                          if (loadingDetails) {
+                              return <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching specs...</p></div>;
+                          }
+                          const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
+                          let jsonSpecs = {};
+                          try {
+                              const potentialKeys = ['Production_Specs_JSON', 'Item_Details_JSON', 'Details_JSON', 'Specs_JSON', 'Item_Details', 'Item Details', 'JSON'];
+                              let jsonField = null;
+                              for (const key of potentialKeys) { if (item.fields[key]) { jsonField = item.fields[key]; break; } }
+                              if (jsonField) {
+                                  const parsed = typeof jsonField === 'object' ? jsonField : JSON.parse(jsonField);
+                                  jsonSpecs = parsed.item_details || parsed; 
+                              }
+                          } catch(e) { console.warn("JSON Parse Error", e); }
+
+                          const resolve = (keys, defaultVal) => {
+                              const fieldVal = getValue(item, keys);
+                              if (fieldVal !== undefined && fieldVal !== null && fieldVal !== "") return fieldVal;
+                              for (const k of keys) {
+                                  if (jsonSpecs[k] !== undefined) return jsonSpecs[k];
+                                  if (jsonSpecs[k.toLowerCase()] !== undefined) return jsonSpecs[k.toLowerCase()];
+                              }
+                              return defaultVal;
+                          };
+
+                          const clientName = getValue(selectedJob, ['Client_Name', 'Client Name', 'Client', 'Customer_Name', 'Customer Name', 'Customer', 'Company', 'Business Name', 'Client', 'Account', 'Account Name', 'Name', 'Display Name', 'DisplayName'], "Walk-in Customer");
+                          const dueDate = getValue(selectedJob, ['Due_Date', 'Due Date', 'DueDate', 'Deadline', 'Date Due', 'Ship Date', 'Target Date', 'Delivery Date', 'Date Needed', 'Order Date', 'Order_Date'], null);
+                          const jobName = getValue(selectedJob, ['Project_Name', 'Project Name', 'Job Name', 'Name'], "UNTITLED JOB");
+
+                          const ticketData = {
+                              jobName: jobName,
+                              clientName: clientName,
+                              dueDate: dueDate,
+                              material: resolve(['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A'),
+                              width: resolve(['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0'),
+                              height: resolve(['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0'),
+                              quantity: resolve(['Quantity', 'Qty', 'quantity', 'Count'], '0'),
+                              sides: resolve(['Sides', 'Print Sides', 'sides'], '1'),
+                              cutType: resolve(['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None'),
+                              lamination: resolve(['Lamination', 'lamination', 'Laminate'], false),
+                              grommets: resolve(['Grommets', 'grommets', 'Grommet'], false),
+                              artFileUrl: resolve(['Art_File_Link', 'Art File', 'File'], '')
                           };
 
                           return (
-                              <>
-                                  {/* 🟢 AMBER DUE DATE BANNER */}
-                                  {resolvedDueDate && (
-                                      <div className="bg-amber-50 border border-amber-100 rounded p-3 mb-4 flex items-center gap-2 text-amber-800 font-bold text-sm">
-                                          <Clock size={16} /> Due: {formatBannerDate(resolvedDueDate)}
+                              <div className="p-4 bg-yellow-50/50 rounded-xl">
+                                  <ProductionTicketCard data={ticketData} />
+                                  {jobLineItems.length > 1 && (
+                                      <div className="mt-8 border-t pt-6">
+                                          <h4 className="font-bold text-slate-500 text-sm uppercase mb-4">Additional Items in this Job</h4>
+                                          <div className="space-y-2">
+                                              {jobLineItems.slice(1).map((subItem, idx) => (
+                                                  <div key={subItem.id} className="bg-white p-3 rounded border text-sm flex justify-between">
+                                                      <span>{getValue(subItem, ['Material_Type', 'Material'])} ({getValue(subItem, ['Width_In', 'Width'])}" x {getValue(subItem, ['Height_In', 'Height'])}")</span>
+                                                      <span className="font-bold">Qty: {getValue(subItem, ['Quantity', 'Qty'])}</span>
+                                                  </div>
+                                              ))}
+                                          </div>
                                       </div>
                                   )}
-
-                                  {/* 🟢 TICKET VIEW RENDERER */}
-                                  {(() => {
-                                      if (loadingDetails) {
-                                          return <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching specs...</p></div>;
-                                      }
-
-                                      // Data Preparation
-                                      const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
-                                      let jsonSpecs = {};
-                                      try {
-                                          const potentialKeys = ['Production_Specs_JSON', 'Item_Details_JSON', 'Details_JSON', 'Specs_JSON', 'Item_Details', 'Item Details', 'JSON'];
-                                          let jsonField = null;
-                                          for (const key of potentialKeys) { if (item.fields[key]) { jsonField = item.fields[key]; break; } }
-                                          if (jsonField) {
-                                              const parsed = typeof jsonField === 'object' ? jsonField : JSON.parse(jsonField);
-                                              jsonSpecs = parsed.item_details || parsed; 
-                                          }
-                                      } catch(e) { console.warn("JSON Parse Error", e); }
-
-                                      const resolve = (keys, defaultVal) => {
-                                          const fieldVal = getValue(item, keys);
-                                          if (fieldVal !== undefined && fieldVal !== null && fieldVal !== "") return fieldVal;
-                                          for (const k of keys) {
-                                              if (jsonSpecs[k] !== undefined) return jsonSpecs[k];
-                                              if (jsonSpecs[k.toLowerCase()] !== undefined) return jsonSpecs[k.toLowerCase()];
-                                          }
-                                          return defaultVal;
-                                      };
-
-                                      const clientName = getValue(selectedJob, ['Client_Name', 'Client Name', 'Client', 'Customer_Name', 'Customer Name', 'Customer', 'Company', 'Business Name', 'Client', 'Account', 'Account Name', 'Name', 'Display Name', 'DisplayName'], "Walk-in Customer");
-                                      const jobName = getValue(selectedJob, ['Project_Name', 'Project Name', 'Job Name', 'Name'], "UNTITLED JOB");
-
-                                      const ticketData = {
-                                          jobName: jobName,
-                                          clientName: clientName,
-                                          dueDate: resolvedDueDate, 
-                                          material: resolve(['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A'),
-                                          width: resolve(['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0'),
-                                          height: resolve(['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0'),
-                                          quantity: resolve(['Quantity', 'Qty', 'quantity', 'Count'], '0'),
-                                          sides: resolve(['Sides', 'Print Sides', 'sides'], '1'),
-                                          cutType: resolve(['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None'),
-                                          lamination: resolve(['Lamination', 'lamination', 'Laminate'], false),
-                                          grommets: resolve(['Grommets', 'grommets', 'Grommet'], false),
-                                          artFileUrl: resolve(['Art_File_Link', 'Art File', 'File'], '')
-                                      };
-
-                                      return (
-                                          <div className="p-4 bg-yellow-50/50 rounded-xl">
-                                              <ProductionTicketCard data={ticketData} />
-                                              {jobLineItems.length > 1 && (
-                                                  <div className="mt-8 border-t pt-6">
-                                                      <h4 className="font-bold text-slate-500 text-sm uppercase mb-4">Additional Items in this Job</h4>
-                                                      <div className="space-y-2">
-                                                          {jobLineItems.slice(1).map((subItem, idx) => (
-                                                              <div key={subItem.id} className="bg-white p-3 rounded border text-sm flex justify-between">
-                                                                  <span>{getValue(subItem, ['Material_Type', 'Material'])} ({getValue(subItem, ['Width_In', 'Width'])}" x {getValue(subItem, ['Height_In', 'Height'])}")</span>
-                                                                  <span className="font-bold">Qty: {getValue(subItem, ['Quantity', 'Qty'])}</span>
-                                                              </div>
-                                                          ))}
-                                                      </div>
-                                                  </div>
-                                              )}
-                                          </div>
-                                      );
-                                  })()}
-                              </>
+                              </div>
                           );
                       })()}
 
@@ -809,29 +871,81 @@ export default function App() {
                )}
             </div>
 
-            {/* JOB SPECS */}
+            {/* 🟢 NEW: QUOTE TYPE SWITCHER */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Settings size={18} className="text-blue-600" /> Job Specs</h2>
+              <div className="flex justify-between items-center mb-4">
+                 <h2 className="text-lg font-semibold flex items-center gap-2"><Settings size={18} className="text-blue-600" /> Job Specs</h2>
+                 <div className="flex bg-slate-100 rounded-lg p-1">
+                    <button onClick={() => setQuoteType('large_format')} className={`text-xs font-bold px-3 py-1 rounded-md transition-all ${quoteType === 'large_format' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Large Format</button>
+                    <button onClick={() => setQuoteType('digital')} className={`text-xs font-bold px-3 py-1 rounded-md transition-all ${quoteType === 'digital' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Digital/Small</button>
+                 </div>
+              </div>
+
               <div className="space-y-4">
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Job / Project Name</label><input type="text" name="jobName" placeholder="e.g. Fall Event Signs" value={inputs.jobName} onChange={handleInputChange} className="w-full rounded-md border-slate-300 shadow-sm border p-2" /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Due Date</label><input type="date" name="dueDate" value={inputs.dueDate} onChange={handleInputChange} className="w-full rounded-md border-slate-300 shadow-sm border p-2" /></div>
-                <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-slate-700 mb-1">Width (in)</label><input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div><div><label className="block text-sm font-medium text-slate-700 mb-1">Height (in)</label><input type="number" name="height" value={inputs.height} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label><input type="number" name="quantity" value={inputs.quantity} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Material</label><select name="material" value={inputs.material} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2">{Object.values(MATERIALS).map(m => (<option key={m.key} value={m.name}>{m.name}</option>))}</select></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Print Sides</label><div className="flex gap-4"><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="1" checked={inputs.sides === '1'} onChange={handleInputChange} /><span>Single Sided</span></label><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="2" checked={inputs.sides === '2'} onChange={handleInputChange} /><span>Double Sided</span></label></div></div>
+
+                {/* 🟢 CONDITIONAL INPUTS BASED ON TYPE */}
+                {quoteType === 'large_format' ? (
+                   <>
+                      <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-slate-700 mb-1">Width (in)</label><input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div><div><label className="block text-sm font-medium text-slate-700 mb-1">Height (in)</label><input type="number" name="height" value={inputs.height} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div></div>
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label><input type="number" name="quantity" value={inputs.quantity} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Material</label><select name="material" value={inputs.material} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2">{Object.values(MATERIALS).map(m => (<option key={m.key} value={m.name}>{m.name}</option>))}</select></div>
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Print Sides</label><div className="flex gap-4"><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="1" checked={inputs.sides === '1'} onChange={handleInputChange} /><span>Single Sided</span></label><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="2" checked={inputs.sides === '2'} onChange={handleInputChange} /><span>Double Sided</span></label></div></div>
+                   </>
+                ) : (
+                   <>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Product</label>
+                        <select name="digitalProductId" value={inputs.digitalProductId} onChange={e => {
+                            const val = e.target.value;
+                            if (val === 'custom') {
+                                setInputs({...inputs, digitalProductId: 'custom', width: 0, height: 0});
+                            } else {
+                                const p = digitalProducts.find(dp => dp.id === val);
+                                if (p) setInputs({...inputs, digitalProductId: val, width: p.width, height: p.height});
+                            }
+                        }} className="w-full rounded-md border-slate-300 border p-2">
+                            <option value="">Select Product...</option>
+                            {digitalProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            <option value="custom">-- Custom Digital Quote --</option>
+                        </select>
+                      </div>
+
+                      {inputs.digitalProductId === 'custom' && (
+                        <>
+                            <div><label className="block text-sm font-medium text-slate-700 mb-1">Item Name</label><input type="text" name="customDigitalName" value={inputs.customDigitalName} onChange={handleInputChange} className="w-full border p-2 rounded-md" placeholder="e.g. Custom Invites" /></div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Width</label><input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full border p-2 rounded-md" /></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Height</label><input type="number" name="height" value={inputs.height} onChange={handleInputChange} className="w-full border p-2 rounded-md" /></div>
+                            </div>
+                            <div><label className="block text-sm font-medium text-slate-700 mb-1">Unit Price ($)</label><input type="number" step="0.01" name="unitPrice" value={inputs.unitPrice} onChange={handleInputChange} className="w-full border p-2 rounded-md" /></div>
+                        </>
+                      )}
+
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label><input type="number" name="quantity" value={inputs.quantity} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Page Count (if booklet)</label><input type="number" name="pageCount" value={inputs.pageCount} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
+                   </>
+                )}
               </div>
             </div>
 
             {/* FINISHING */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Scissors size={18} className="text-green-600" /> Finishing</h2>
-              <div className="space-y-4">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Cut Type</label><select name="cutType" value={inputs.cutType} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2"><option value="Rectangular">Rectangular (Free)</option><option value="Contour">Contour / Shape (+$25.00 Setup)</option></select></div>
-                <div className="space-y-3 pt-2 border-t border-slate-100">
-                  <label className="flex items-center justify-between cursor-pointer"><div className="flex items-center gap-2"><input type="checkbox" name="addLamination" checked={inputs.addLamination} onChange={handleInputChange} className="h-4 w-4 text-blue-600 rounded" /><span className="text-sm font-medium text-slate-700">Add Lamination</span></div><span className="text-xs text-slate-500">$2.50/sqft</span></label>
-                  <label className="flex items-center justify-between cursor-pointer"><div className="flex items-center gap-2"><input type="checkbox" name="addGrommets" checked={inputs.addGrommets} onChange={handleInputChange} className="h-4 w-4 text-blue-600 rounded" /><span className="text-sm font-medium text-slate-700">Add Grommets</span></div><span className="text-xs text-slate-500">$0.25/ea</span></label>
-                </div>
-              </div>
+              {quoteType === 'large_format' ? (
+                  <div className="space-y-4">
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Cut Type</label><select name="cutType" value={inputs.cutType} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2"><option value="Rectangular">Rectangular (Free)</option><option value="Contour">Contour / Shape (+$25.00 Setup)</option></select></div>
+                    <div className="space-y-3 pt-2 border-t border-slate-100">
+                      <label className="flex items-center justify-between cursor-pointer"><div className="flex items-center gap-2"><input type="checkbox" name="addLamination" checked={inputs.addLamination} onChange={handleInputChange} className="h-4 w-4 text-blue-600 rounded" /><span className="text-sm font-medium text-slate-700">Add Lamination</span></div><span className="text-xs text-slate-500">$2.50/sqft</span></label>
+                      <label className="flex items-center justify-between cursor-pointer"><div className="flex items-center gap-2"><input type="checkbox" name="addGrommets" checked={inputs.addGrommets} onChange={handleInputChange} className="h-4 w-4 text-blue-600 rounded" /><span className="text-sm font-medium text-slate-700">Add Grommets</span></div><span className="text-xs text-slate-500">$0.25/ea</span></label>
+                    </div>
+                  </div>
+              ) : (
+                  <div className="space-y-4">
+                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Binding / Finishing</label><select name="bindingType" value={inputs.bindingType} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2"><option value="None">None / Flush Cut</option><option value="Coil">Coil Binding (+$5.00)</option><option value="Staple">Stapled / Saddle Stitch (+$0.50)</option></select></div>
+                  </div>
+              )}
             </div>
 
             {/* ART FILES */}
@@ -882,13 +996,24 @@ export default function App() {
                           <p className="text-xl font-semibold text-slate-700">{formatCurrency(calculationResult?.unitPrice || 0)} <span className="text-sm font-normal text-slate-400">/ea</span></p>
                         </div>
                       </div>
+                      
+                      {/* 🟢 Dynamic Quote Summary based on Type */}
                       <div className="grid grid-cols-2 gap-4 mb-6 text-sm text-slate-600">
-                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Dimensions</span> <span className="font-mono font-bold">{inputs.width}" x {inputs.height}"</span></div>
-                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Material</span> <span className="font-bold">{inputs.material}</span></div>
+                         {quoteType === 'large_format' ? (
+                             <>
+                                <div className="flex justify-between border-b border-slate-50 pb-2"><span>Dimensions</span> <span className="font-mono font-bold">{inputs.width}" x {inputs.height}"</span></div>
+                                <div className="flex justify-between border-b border-slate-50 pb-2"><span>Material</span> <span className="font-bold">{inputs.material}</span></div>
+                             </>
+                         ) : (
+                             <>
+                                <div className="flex justify-between border-b border-slate-50 pb-2"><span>Product</span> <span className="font-bold truncate">{calculationResult.specs?.product?.name || inputs.customDigitalName || 'Custom'}</span></div>
+                                <div className="flex justify-between border-b border-slate-50 pb-2"><span>Binding</span> <span className="font-bold">{inputs.bindingType}</span></div>
+                             </>
+                         )}
                          <div className="flex justify-between border-b border-slate-50 pb-2"><span>Quantity</span> <span className="font-bold">{inputs.quantity}</span></div>
-                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Sides</span> <span className="font-bold">{inputs.sides === '2' ? 'Double' : 'Single'}</span></div>
                          {inputs.dueDate && <div className="flex justify-between border-b border-slate-50 pb-2 text-amber-600"><span>Due Date</span> <span className="font-bold">{safeFormatDate(inputs.dueDate)}</span></div>}
                       </div>
+
                       <div className="mt-8 pt-6 border-t border-slate-100">
                         <button onClick={handleSubmit} disabled={(!HARDCODED_SUBMIT_WEBHOOK && !config.webhookUrl) || submitStatus === 'sending' || submitStatus === 'success'} className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${submitStatus === 'success' ? 'bg-green-600 text-white' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>
                           {submitStatus === 'idle' && <><Send size={18} /> Submit Order {customer.name && `for ${customer.name}`}</>}
@@ -912,14 +1037,16 @@ export default function App() {
                             jobName: inputs.jobName,
                             clientName: customer.name || "Walk-in Customer",
                             dueDate: inputs.dueDate,
-                            material: inputs.material,
+                            material: quoteType === 'large_format' ? inputs.material : (inputs.digitalProductId === 'custom' ? inputs.customDigitalName : digitalProducts.find(p => p.id === inputs.digitalProductId)?.name),
                             width: inputs.width,
                             height: inputs.height,
                             quantity: inputs.quantity,
                             sides: inputs.sides,
-                            cutType: inputs.cutType,
+                            cutType: quoteType === 'large_format' ? inputs.cutType : 'None',
                             lamination: inputs.addLamination,
                             grommets: inputs.addGrommets,
+                            binding: inputs.bindingType,
+                            pages: inputs.pageCount,
                             artFileUrl: inputs.artFileUrl
                         }} />
                     </div>
