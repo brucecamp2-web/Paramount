@@ -143,19 +143,15 @@ const getDueDateStatus = (dateInput) => {
   return { color: 'bg-slate-100 text-slate-600 border-slate-200', label: due.toLocaleDateString(undefined, {month:'short', day:'numeric'}), icon: Calendar };
 };
 
-// 🟢 SMART FIELD RESOLVER
 const getValue = (record, keys, defaultVal = null) => {
     if (!record || !record.fields) return defaultVal;
-    
     for (const key of keys) {
         let val = record.fields[key];
-        
         if (val === undefined) {
             const lowerKey = key.toLowerCase();
             const foundKey = Object.keys(record.fields).find(k => k.toLowerCase() === lowerKey);
             if (foundKey) val = record.fields[foundKey];
         }
-
         if (val !== undefined && val !== null && val !== "") {
             while (Array.isArray(val)) {
                 if (val.length === 0) return defaultVal;
@@ -167,7 +163,6 @@ const getValue = (record, keys, defaultVal = null) => {
     return defaultVal;
 };
 
-// Helper Component for the Ticket UI
 const ProductionTicketCard = ({ data }) => {
     const formattedDate = safeFormatDate(data.dueDate) || "N/A";
 
@@ -298,6 +293,9 @@ export default function App() {
         localStorage.setItem('paramount_at_link_col', config.airtableLinkedFieldName);
     } } catch (e) { }
   }, [config]);
+
+  // 🟢 Debug Logging to catch render issues
+  console.log("App Rendering...", { viewMode, inputs });
 
   const [jobs, setJobs] = useState([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
@@ -439,11 +437,9 @@ export default function App() {
     const height = parseFloat(inputs.height) || 0;
     const qty = parseInt(inputs.quantity) || 0;
     
-    // Always return a safe object structure, never null/undefined
-    const safeResult = { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
-
+    // Return empty safe object if dimensions invalid, but DO NOT RETURN NULL
     if (width === 0 || height === 0 || qty === 0 || !matData) {
-        return safeResult;
+        return { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
     }
 
     const itemSqFt = (width * height) / 144;
@@ -784,6 +780,153 @@ export default function App() {
                 </div>
              </div>
           )}
+        </main>
+      )}
+
+      {(viewMode === 'quote' || viewMode === 'production') && (
+        <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
+          <div className="lg:col-span-5 space-y-6">
+            {/* CUSTOMER SEARCH CARD */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-emerald-500">
+               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><User size={18} className="text-emerald-600" /> Customer</h2>
+               {customer.name ? (
+                  <div className="flex items-center justify-between bg-emerald-50 p-3 rounded-lg border border-emerald-100"><div className="flex items-center gap-3"><div className="bg-emerald-200 text-emerald-800 p-2 rounded-full"><Check size={16} /></div><div><p className="font-bold text-emerald-900 text-sm">{customer.name}</p><p className="text-xs text-emerald-600">QBO ID: {customer.id}</p></div></div><button onClick={() => setCustomer({id:'', name:''})} className="text-emerald-400 hover:text-emerald-700"><X size={16} /></button></div>
+               ) : (
+                  <div className="relative">
+                     <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
+                     {/* DROPDOWN RESULTS */}
+                     {customerResults.length > 0 && ( 
+                        <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-60 overflow-y-auto">
+                            {customerResults.map(res => (
+                                <div key={res.id} onClick={() => selectCustomer(res)} className={`p-3 border-b border-slate-50 last:border-0 flex items-center gap-2 ${res.isAction ? 'bg-blue-50 hover:bg-blue-100 cursor-pointer text-blue-800' : ''} ${res.id === 'error-msg' ? 'text-red-500 cursor-default hover:bg-white' : ''} ${res.id === 'no-results' || res.id === 'make-setup' ? 'text-slate-400 cursor-default hover:bg-white' : ''} ${!res.isAction && res.id !== 'error-msg' && res.id !== 'no-results' && res.id !== 'make-setup' ? 'hover:bg-slate-50 cursor-pointer' : ''}`}>
+                                    {res.isAction && (isCreatingCustomer ? <Loader size={16} className="animate-spin" /> : <UserPlus size={16} />)}
+                                    <div><p className={`font-bold text-sm ${res.isAction ? 'text-blue-700' : ''}`}>{res.DisplayName}</p>{(res.id !== 'error-msg' && res.id !== 'no-results' && res.id !== 'make-setup' && !res.isAction) && <p className="text-xs text-slate-400">ID: {res.id}</p>}</div>
+                                </div>
+                            ))}
+                        </div> 
+                     )}
+                  </div>
+               )}
+            </div>
+
+            {/* JOB SPECS */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Settings size={18} className="text-blue-600" /> Job Specs</h2>
+              <div className="space-y-4">
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Job / Project Name</label><input type="text" name="jobName" placeholder="e.g. Fall Event Signs" value={inputs.jobName} onChange={handleInputChange} className="w-full rounded-md border-slate-300 shadow-sm border p-2" /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Due Date</label><input type="date" name="dueDate" value={inputs.dueDate} onChange={handleInputChange} className="w-full rounded-md border-slate-300 shadow-sm border p-2" /></div>
+                <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-slate-700 mb-1">Width (in)</label><input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div><div><label className="block text-sm font-medium text-slate-700 mb-1">Height (in)</label><input type="number" name="height" value={inputs.height} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label><input type="number" name="quantity" value={inputs.quantity} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Material</label><select name="material" value={inputs.material} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2">{Object.values(MATERIALS).map(m => (<option key={m.key} value={m.name}>{m.name}</option>))}</select></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Print Sides</label><div className="flex gap-4"><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="1" checked={inputs.sides === '1'} onChange={handleInputChange} /><span>Single Sided</span></label><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="2" checked={inputs.sides === '2'} onChange={handleInputChange} /><span>Double Sided</span></label></div></div>
+              </div>
+            </div>
+
+            {/* FINISHING */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Scissors size={18} className="text-green-600" /> Finishing</h2>
+              <div className="space-y-4">
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Cut Type</label><select name="cutType" value={inputs.cutType} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2"><option value="Rectangular">Rectangular (Free)</option><option value="Contour">Contour / Shape (+$25.00 Setup)</option></select></div>
+                <div className="space-y-3 pt-2 border-t border-slate-100">
+                  <label className="flex items-center justify-between cursor-pointer"><div className="flex items-center gap-2"><input type="checkbox" name="addLamination" checked={inputs.addLamination} onChange={handleInputChange} className="h-4 w-4 text-blue-600 rounded" /><span className="text-sm font-medium text-slate-700">Add Lamination</span></div><span className="text-xs text-slate-500">$2.50/sqft</span></label>
+                  <label className="flex items-center justify-between cursor-pointer"><div className="flex items-center gap-2"><input type="checkbox" name="addGrommets" checked={inputs.addGrommets} onChange={handleInputChange} className="h-4 w-4 text-blue-600 rounded" /><span className="text-sm font-medium text-slate-700">Add Grommets</span></div><span className="text-xs text-slate-500">$0.25/ea</span></label>
+                </div>
+              </div>
+            </div>
+
+            {/* ART FILES */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-indigo-500">
+               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><UploadCloud size={18} className="text-indigo-600" /> Art Files</h2>
+               <div className="space-y-3">
+                  <div className="border-2 border-dashed border-indigo-100 rounded-lg p-4 text-center hover:bg-indigo-50 transition-colors cursor-pointer relative">
+                     <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} disabled={isUploading} />
+                     {isUploading ? (<div className="flex flex-col items-center justify-center text-indigo-600"><Loader size={24} className="animate-spin mb-2" /><span className="text-sm font-medium">Uploading to Drive...</span></div>) : (<div className="flex flex-col items-center justify-center text-indigo-400"><UploadCloud size={24} className="mb-2" /><span className="text-sm font-medium text-indigo-600">Click to Upload File</span><span className="text-[10px] text-slate-400 mt-1">Max 100MB (Logos, Proofs)</span></div>)}
+                  </div>
+                  <div className="relative"><div className="absolute left-3 top-2.5 text-slate-400"><LinkIcon size={16} /></div><input type="text" name="artFileUrl" placeholder="Paste WeTransfer / Dropbox Link" className="w-full pl-9 rounded-md border-slate-300 text-sm p-2" value={inputs.artFileUrl} onChange={handleInputChange} /></div>
+                  {inputs.artFileUrl && (<div className="bg-indigo-50 text-indigo-700 text-xs p-2 rounded flex items-center gap-2 truncate"><CheckCircle size={14} className="flex-shrink-0" /> <span className="truncate">{inputs.artFileUrl}</span></div>)}
+                  {uploadError && <p className="text-red-500 text-xs mt-1">{uploadError}</p>}
+               </div>
+            </div>
+
+            {/* ADMIN CONFIG */}
+            {(!HARDCODED_SUBMIT_WEBHOOK || !HARDCODED_SEARCH_WEBHOOK || !HARDCODED_UPLOAD_WEBHOOK || !HARDCODED_CREATE_WEBHOOK) && (
+              <div className="bg-slate-100 rounded-xl shadow-inner border border-slate-200 p-6">
+                <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Webhook Settings</h2>
+                <div className="space-y-3">
+                  {!HARDCODED_SUBMIT_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">Submit Order Webhook</label><input type="text" name="webhookUrl" value={config.webhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
+                  {!HARDCODED_SEARCH_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">QBO Search Webhook</label><input type="text" name="searchWebhookUrl" value={config.searchWebhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
+                  {!HARDCODED_CREATE_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">Create Customer Webhook</label><input type="text" name="createWebhookUrl" value={config.createWebhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
+                  {!HARDCODED_UPLOAD_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">Drive Upload Webhook</label><input type="text" name="uploadWebhookUrl" value={config.uploadWebhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="lg:col-span-7 space-y-6">
+            {/* 🟢 ALWAYS RENDER THE CONTAINER */}
+            <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+                {viewMode === 'quote' && (
+                  <>
+                    <div className="bg-blue-600 p-4 text-white flex justify-between items-center">
+                      <h3 className="font-semibold flex items-center gap-2"><DollarSign size={20} /> Customer Quote</h3>
+                      <span className="text-xs bg-blue-700 px-2 py-1 rounded text-blue-100">Valid for 30 days</span>
+                    </div>
+                    <div className="p-6">
+                      <div className="flex justify-between items-end mb-6 border-b border-slate-100 pb-6">
+                        <div>
+                          <p className="text-sm text-slate-500 uppercase tracking-wider font-semibold">Total Project Cost</p>
+                          <h2 className="text-4xl font-bold text-slate-900 mt-1">{formatCurrency(calculationResult?.totalSellPrice || 0)}</h2>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-slate-500">Price per unit</p>
+                          <p className="text-xl font-semibold text-slate-700">{formatCurrency(calculationResult?.unitPrice || 0)} <span className="text-sm font-normal text-slate-400">/ea</span></p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 mb-6 text-sm text-slate-600">
+                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Dimensions</span> <span className="font-mono font-bold">{inputs.width}" x {inputs.height}"</span></div>
+                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Material</span> <span className="font-bold">{inputs.material}</span></div>
+                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Quantity</span> <span className="font-bold">{inputs.quantity}</span></div>
+                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Sides</span> <span className="font-bold">{inputs.sides === '2' ? 'Double' : 'Single'}</span></div>
+                         {inputs.dueDate && <div className="flex justify-between border-b border-slate-50 pb-2 text-amber-600"><span>Due Date</span> <span className="font-bold">{safeFormatDate(inputs.dueDate)}</span></div>}
+                      </div>
+                      <div className="mt-8 pt-6 border-t border-slate-100">
+                        <button onClick={handleSubmit} disabled={(!HARDCODED_SUBMIT_WEBHOOK && !config.webhookUrl) || submitStatus === 'sending' || submitStatus === 'success'} className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${submitStatus === 'success' ? 'bg-green-600 text-white' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>
+                          {submitStatus === 'idle' && <><Send size={18} /> Submit Order {customer.name && `for ${customer.name}`}</>}
+                          {submitStatus === 'sending' && <><Loader size={18} className="animate-spin" /> Sending...</>}
+                          {submitStatus === 'success' && <><Check size={18} /> Sent!</>}
+                          {submitStatus === 'error' && "Error - Check Webhook"}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {viewMode === 'production' && (
+                  <>
+                    <div className="bg-slate-800 p-4 text-white flex justify-between items-center">
+                      <h3 className="font-semibold flex items-center gap-2"><Package size={20} /> Production Ticket Preview</h3>
+                      <span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">INTERNAL USE ONLY</span>
+                    </div>
+                    <div className="p-8 bg-yellow-50/50 h-full">
+                        <ProductionTicketCard data={{
+                            jobName: inputs.jobName,
+                            clientName: customer.name || "Walk-in Customer",
+                            dueDate: inputs.dueDate,
+                            material: inputs.material,
+                            width: inputs.width,
+                            height: inputs.height,
+                            quantity: inputs.quantity,
+                            sides: inputs.sides,
+                            cutType: inputs.cutType,
+                            lamination: inputs.addLamination,
+                            grommets: inputs.addGrommets,
+                            artFileUrl: inputs.artFileUrl
+                        }} />
+                    </div>
+                  </>
+                )}
+            </div>
+          </div>
         </main>
       )}
     </div>
