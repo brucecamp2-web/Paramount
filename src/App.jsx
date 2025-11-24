@@ -96,52 +96,69 @@ const MATERIALS = {
   }
 };
 
+// --- HELPER FUNCTIONS ---
+
 const formatCurrency = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0);
 
 const safeFormatDate = (dateInput) => {
     if (!dateInput) return "";
     let raw = dateInput;
-    while (Array.isArray(raw)) { if (raw.length === 0) return ""; raw = raw[0]; }
+    // Unwrap array if lookup field
+    while (Array.isArray(raw)) {
+        if (raw.length === 0) return "";
+        raw = raw[0];
+    }
+    
     try {
         let date;
-        if (typeof raw === 'string' && raw.match(/^\d{4}-\d{2}-\d{2}$/)) { date = new Date(raw + 'T12:00:00'); } 
-        else { date = new Date(raw); }
-        if (isNaN(date.getTime())) return ""; 
+        // Fix YYYY-MM-DD timezone offset
+        if (typeof raw === 'string' && raw.match(/^\d{4}-\d{2}-\d{2}$/)) {
+             date = new Date(raw + 'T12:00:00');
+        } else {
+             date = new Date(raw);
+        }
+        
+        if (isNaN(date.getTime())) return ""; // Invalid date
         return date.toLocaleDateString();
-    } catch (e) { return ""; }
+    } catch (e) {
+        return "";
+    }
+};
+
+const getDaysSince = (dateString) => {
+  if (!dateString) return 0;
+  const diff = new Date() - new Date(dateString);
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
 };
 
 const getDueDateStatus = (dateInput) => {
   if (!dateInput) return null;
+  
   let rawDate = dateInput;
-  while (Array.isArray(rawDate)) { if (rawDate.length === 0) return null; rawDate = rawDate[0]; }
+  while (Array.isArray(rawDate)) {
+      if (rawDate.length === 0) return null;
+      rawDate = rawDate[0];
+  }
+
+  if (!rawDate) return null;
+
   let due;
-  if (typeof rawDate === 'string' && rawDate.match(/^\d{4}-\d{2}-\d{2}$/)) { due = new Date(rawDate + 'T12:00:00'); } 
-  else { due = new Date(rawDate); }
+  if (typeof rawDate === 'string' && rawDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+     due = new Date(rawDate + 'T12:00:00');
+  } else {
+     due = new Date(rawDate);
+  }
+
   if (isNaN(due.getTime())) return null;
-  const today = new Date(); today.setHours(0,0,0,0);
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
   const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  
   if (diffDays < 0) return { color: 'bg-red-100 text-red-700 border-red-200', label: 'Overdue', icon: AlertCircle };
   if (diffDays === 0) return { color: 'bg-amber-100 text-amber-700 border-amber-200', label: 'Due Today', icon: Clock };
   if (diffDays <= 2) return { color: 'bg-amber-50 text-amber-600 border-amber-200', label: 'Due Soon', icon: Clock };
   return { color: 'bg-slate-100 text-slate-600 border-slate-200', label: due.toLocaleDateString(undefined, {month:'short', day:'numeric'}), icon: Calendar };
-};
-
-const getValue = (record, keys, defaultVal = null) => {
-    if (!record || !record.fields) return defaultVal;
-    for (const key of keys) {
-        let val = record.fields[key];
-        if (val === undefined) {
-            const lowerKey = key.toLowerCase();
-            const foundKey = Object.keys(record.fields).find(k => k.toLowerCase() === lowerKey);
-            if (foundKey) val = record.fields[foundKey];
-        }
-        if (val !== undefined && val !== null && val !== "") {
-            while (Array.isArray(val)) { if (val.length === 0) return defaultVal; val = val[0]; }
-            return val;
-        }
-    }
-    return defaultVal;
 };
 
 // 🟢 Helper to unwrap status for Dashboard Columns (Prevent crashes on Lookup fields)
@@ -151,6 +168,33 @@ const getSafeStatus = (statusValue) => {
     return statusValue;
 };
 
+// 🟢 SMART FIELD RESOLVER
+const getValue = (record, keys, defaultVal = null) => {
+    if (!record || !record.fields) return defaultVal;
+    
+    for (const key of keys) {
+        let val = record.fields[key];
+        
+        // Try case-insensitive search if not found directly
+        if (val === undefined) {
+            const lowerKey = key.toLowerCase();
+            const foundKey = Object.keys(record.fields).find(k => k.toLowerCase() === lowerKey);
+            if (foundKey) val = record.fields[foundKey];
+        }
+
+        if (val !== undefined && val !== null && val !== "") {
+            // 🟢 CRITICAL: Recursively Flatten Arrays (Handle Lookups)
+            while (Array.isArray(val)) {
+                if (val.length === 0) return defaultVal;
+                val = val[0];
+            }
+            return val;
+        }
+    }
+    return defaultVal;
+};
+
+// Helper Component for the Ticket UI
 const ProductionTicketCard = ({ data }) => {
     const formattedDate = safeFormatDate(data.dueDate) || "N/A";
     
@@ -435,7 +479,8 @@ export default function App() {
         const base64Data = reader.result.split(',')[1]; 
         const lastDot = file.name.lastIndexOf('.');
         const ext = lastDot === -1 ? '' : file.name.substring(lastDot);
-        const cleanOriginal = file.name.substring(0, lastDot).replace(/[^a-zA-Z0-9._-]/g, '_');
+        const originalName = lastDot === -1 ? file.name : file.name.substring(0, lastDot);
+        const cleanOriginal = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
         const cleanJob = inputs.jobName ? inputs.jobName.replace(/[^a-zA-Z0-9._-]/g, '_') : 'Quote';
         const quoteRef = Date.now().toString().slice(-6); 
         const finalName = `${cleanJob}_${cleanOriginal}_Ref${quoteRef}${ext}`;
@@ -449,7 +494,7 @@ export default function App() {
       };
     } catch (error) { setUploadError("Upload failed."); setIsUploading(false); }
   };
-  
+
   const handleDragStart = (e, jobId) => { setDraggingJobId(jobId); e.dataTransfer.effectAllowed = "move"; };
   const handleDragOver = (e, jobId = null) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (jobId && jobId !== draggingJobId) setDragOverJobId(jobId); };
   const handleDrop = async (e, targetStatus, targetJobId = null) => {
@@ -487,78 +532,68 @@ export default function App() {
   };
 
   const calculationResult = useMemo(() => {
+    // 🟢 QUOTE CRASH FIX: Fallback if material is not found/defined
     const matData = MATERIALS[inputs.material] || Object.values(MATERIALS)[0];
+    
     const width = parseFloat(inputs.width) || 0;
     const height = parseFloat(inputs.height) || 0;
     const qty = parseInt(inputs.quantity) || 0;
     
-    const emptyResult = { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
-
-    if (quoteType === 'large_format') {
-        if (width === 0 || height === 0 || qty === 0 || !matData) return emptyResult;
-        const itemSqFt = (width * height) / 144;
-        const totalSqFt = itemSqFt * qty;
-        let tierRate = 0;
-        if (matData.tiers) { for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } } }
-        let basePrintCost = totalSqFt * tierRate;
-        if (inputs.sides === '2') basePrintCost *= DOUBLE_SIDED_MULTIPLIER;
-        const costs = { print: basePrintCost, setup: GLOBAL_SETUP_FEE, lamination: 0, grommets: 0, contour: 0 };
-        if (inputs.addLamination && matData.can_laminate) { 
-              let lamCost = totalSqFt * FINISHING_RATES.lamination; 
-              if (lamCost < FINISHING_RATES.lamination_min) lamCost = FINISHING_RATES.lamination_min; 
-              costs.lamination = lamCost; 
-        }
-        if (inputs.addGrommets) costs.grommets = qty * inputs.grommetsPerSign * FINISHING_RATES.grommets;
-        if (inputs.cutType === 'Contour') costs.contour = CONTOUR_SETUP_FEE;
-        const totalSellPrice = Object.values(costs).reduce((a, b) => a + b, 0);
-        const unitPrice = totalSellPrice / qty;
-        let bestSheet = null;
-        if (matData && matData.sheets) {
-          let bestCost = Infinity;
-          matData.sheets.forEach(sheet => {
-            const sw = sheet.w, sh = sheet.h;
-            const fitA = Math.floor(sw / width) * Math.floor(sh / height);
-            const fitB = Math.floor(sw / height) * Math.floor(sh / width);
-            const perSheet = Math.max(fitA, fitB);
-            if (perSheet > 0) {
-              const sheetsNeeded = Math.ceil(qty / perSheet);
-              const totalMatCost = sheetsNeeded * sheet.cost;
-              if (totalMatCost < bestCost) {
-                bestCost = totalMatCost;
-                bestSheet = { name: sheet.name, costPerSheet: sheet.cost, totalMatCost: totalMatCost, sheetsNeeded: sheetsNeeded, yieldPerSheet: perSheet, orientation: fitB > fitA ? 'Rotated' : 'Standard', waste: (( (sw*sh) - (perSheet * width * height) ) / (sw*sh)) * 100 };
-              }
-            }
-          });
-        }
-        const grossMargin = totalSellPrice - (bestSheet ? bestSheet.totalMatCost : 0);
-        const marginPercent = (grossMargin / totalSellPrice) * 100;
-        return { specs: { totalSqFt, tierRate, itemSqFt }, costs, totalSellPrice, unitPrice, production: bestSheet, profitability: { grossMargin, marginPercent } };
-    } else {
-        let unitBase = 0;
-        let product = null;
-        if (inputs.digitalProductId === 'custom') {
-            unitBase = parseFloat(inputs.unitPrice) || 0;
-            product = { name: inputs.customDigitalName || 'Custom Digital', width: inputs.width, height: inputs.height, binding: 'None' };
-        } else {
-            product = digitalProducts.find(p => p.id === inputs.digitalProductId);
-            if (product) unitBase = product.basePrice + ((product.perPagePrice || 0) * (parseInt(inputs.pageCount) || 0));
-        }
-        let bindingCost = 0;
-        if (inputs.bindingType === 'Coil') bindingCost = FINISHING_RATES.coil_binding;
-        if (inputs.bindingType === 'Staple') bindingCost = FINISHING_RATES.stapling;
-        const singleCost = unitBase + bindingCost;
-        const totalSellPrice = singleCost * qty;
-        return {
-            specs: { type: 'digital', product: product },
-            costs: { print: totalSellPrice },
-            totalSellPrice: totalSellPrice,
-            unitPrice: singleCost || 0,
-            production: null,
-            profitability: { grossMargin: 0, marginPercent: 0 } 
-        };
+    // Return empty safe object if dimensions invalid, but DO NOT RETURN NULL
+    if (width === 0 || height === 0 || qty === 0 || !matData) {
+        return { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
     }
-  }, [inputs, quoteType, digitalProducts]);
 
+    const itemSqFt = (width * height) / 144;
+    const totalSqFt = itemSqFt * qty;
+    let tierRate = 0;
+    if (matData.tiers) {
+        for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } }
+    }
+    
+    let basePrintCost = totalSqFt * tierRate;
+    if (inputs.sides === '2') basePrintCost *= DOUBLE_SIDED_MULTIPLIER;
+    
+    const costs = { print: basePrintCost, setup: GLOBAL_SETUP_FEE, lamination: 0, grommets: 0, contour: 0 };
+    
+    if (inputs.addLamination) {
+      if (matData.can_laminate) { 
+          let lamCost = totalSqFt * FINISHING_RATES.lamination; 
+          if (lamCost < FINISHING_RATES.lamination_min) lamCost = FINISHING_RATES.lamination_min; 
+          costs.lamination = lamCost; 
+      }
+    }
+    
+    if (inputs.addGrommets) costs.grommets = qty * inputs.grommetsPerSign * FINISHING_RATES.grommets;
+    if (inputs.cutType === 'Contour') costs.contour = CONTOUR_SETUP_FEE;
+    
+    const totalSellPrice = Object.values(costs).reduce((a, b) => a + b, 0);
+    const unitPrice = totalSellPrice / qty;
+    let bestSheet = null;
+    
+    if (matData && matData.sheets) {
+      let bestCost = Infinity;
+      matData.sheets.forEach(sheet => {
+        const sw = sheet.w, sh = sheet.h;
+        const fitA = Math.floor(sw / width) * Math.floor(sh / height);
+        const fitB = Math.floor(sw / height) * Math.floor(sh / width);
+        const perSheet = Math.max(fitA, fitB);
+        if (perSheet > 0) {
+          const sheetsNeeded = Math.ceil(qty / perSheet);
+          const totalMatCost = sheetsNeeded * sheet.cost;
+          if (totalMatCost < bestCost) {
+            bestCost = totalMatCost;
+            bestSheet = { name: sheet.name, costPerSheet: sheet.cost, totalMatCost: totalMatCost, sheetsNeeded: sheetsNeeded, yieldPerSheet: perSheet, orientation: fitB > fitA ? 'Rotated' : 'Standard', waste: (( (sw*sh) - (perSheet * width * height) ) / (sw*sh)) * 100 };
+          }
+        }
+      });
+    }
+    const grossMargin = totalSellPrice - (bestSheet ? bestSheet.totalMatCost : 0);
+    const marginPercent = (grossMargin / totalSellPrice) * 100;
+    return { specs: { totalSqFt, tierRate, itemSqFt }, costs, totalSellPrice, unitPrice, production: bestSheet, profitability: { grossMargin, marginPercent } };
+  }, [inputs]);
+
+  // 🟢 SMART FETCH LINE ITEMS: Uses IDs if available, else falls back to formula
   const fetchLineItems = async (job) => {
     setLoadingDetails(true); setJobLineItems([]);
     const tableName = config.airtableLineItemsName || 'Line Items'; 
@@ -566,22 +601,34 @@ export default function App() {
     const pat = config.airtablePat;
     const linkedField = config.airtableLinkedFieldName || 'Job_Link';
     const encodedTable = encodeURIComponent(tableName);
+
     try {
         let url = '';
+        // 🟢 Check if job has direct linked IDs in common fields
         const possibleLinkCols = ['Line Items', 'LineItems', 'Items', 'Line_Items'];
         let linkedIds = [];
         for (const key of possibleLinkCols) {
-            if (job.fields[key] && Array.isArray(job.fields[key])) { linkedIds = job.fields[key]; break; }
+            if (job.fields[key] && Array.isArray(job.fields[key])) { 
+                linkedIds = job.fields[key]; 
+                break; 
+            }
         }
+
         if (linkedIds.length > 0) {
+            // Use RECORD_ID() formula to fetch specific records
             const formula = `OR(${linkedIds.map(id => `RECORD_ID()='${id}'`).join(',')})`;
             url = `https://api.airtable.com/v0/${baseId}/${encodedTable}?filterByFormula=${encodeURIComponent(formula)}`;
         } else {
+            // Fallback to column text matching
             const filterFormula = `filterByFormula=${encodeURIComponent(`{${linkedField}}='${job.id}'`)}`;
             url = `https://api.airtable.com/v0/${baseId}/${encodedTable}?${filterFormula}`;
         }
+
         const response = await fetch(url, { headers: { Authorization: `Bearer ${pat}` } });
-        if (response.ok) { const data = await response.json(); setJobLineItems(data.records); }
+        if (response.ok) { 
+            const data = await response.json(); 
+            setJobLineItems(data.records); 
+        }
     } catch (error) { console.error("Fetch Line Items Error:", error); } finally { setLoadingDetails(false); }
   };
 
@@ -1034,7 +1081,7 @@ export default function App() {
           </div>
 
           <div className="lg:col-span-7 space-y-6">
-            {/* 🟢 ALWAYS RENDER THE CONTAINER */}
+            {/* 🟢 ALWAYS RENDER THE CONTAINER - removed conditional rendering logic that hid it */}
             <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
                 {viewMode === 'quote' && (
                   <>
