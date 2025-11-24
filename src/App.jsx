@@ -93,10 +93,13 @@ const getDaysSince = (dateString) => {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 };
 
-const getDueDateStatus = (dateString) => {
-  if (!dateString) return null;
+// 🟢 ROBUST DUE DATE CHECKER
+const getDueDateStatus = (dateInput) => {
+  if (!dateInput) return null;
   // Handle array lookup fields from Airtable (sometimes they return [ "2023-01-01" ])
-  const rawDate = Array.isArray(dateString) ? dateString[0] : dateString;
+  const rawDate = Array.isArray(dateInput) ? dateInput[0] : dateInput;
+  if (!rawDate) return null;
+
   const due = new Date(rawDate);
   if (isNaN(due.getTime())) return null;
 
@@ -110,7 +113,7 @@ const getDueDateStatus = (dateString) => {
   return { color: 'bg-slate-100 text-slate-600 border-slate-200', label: due.toLocaleDateString(undefined, {month:'short', day:'numeric'}), icon: Calendar };
 };
 
-// 🟢 SMART FIELD RESOLVER (IMPROVED for Arrays)
+// 🟢 SMART FIELD RESOLVER (IMPROVED for Arrays/Lookups)
 const getValue = (record, keys, defaultVal = null) => {
     if (!record || !record.fields) return defaultVal;
     
@@ -138,6 +141,9 @@ const getValue = (record, keys, defaultVal = null) => {
 
 // Helper Component for the Ticket UI
 const ProductionTicketCard = ({ data }) => {
+    const safeDate = data.dueDate ? new Date(data.dueDate) : null;
+    const formattedDate = safeDate && !isNaN(safeDate.getTime()) ? safeDate.toLocaleDateString() : "N/A";
+
     return (
         <div className="border-4 border-slate-900 p-6 rounded-xl bg-white shadow-sm text-left">
             <div className="flex justify-between items-start mb-6 border-b-2 border-slate-900 pb-4">
@@ -148,7 +154,7 @@ const ProductionTicketCard = ({ data }) => {
                 <div className="text-right">
                     <div className="text-sm font-bold text-slate-400 uppercase">Due Date</div>
                     <div className="text-xl font-mono font-bold text-red-600">
-                        {data.dueDate ? new Date(data.dueDate).toLocaleDateString() : "N/A"}
+                        {formattedDate}
                     </div>
                 </div>
             </div>
