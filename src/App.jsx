@@ -32,13 +32,17 @@ import {
 } from 'lucide-react';
 
 // --- ⚠️ HARDCODED CONFIGURATION ⚠️ ---
+// These values will override any local settings
 const HARDCODED_SUBMIT_WEBHOOK = "https://hook.us2.make.com/mnsu9apt7zhxfjibn3fm6fyy1qrlotlh"; 
 const HARDCODED_SEARCH_WEBHOOK = "https://hook.us2.make.com/1eld4uno29hvl6fifvmw0e4s7ig54was";
 const HARDCODED_CREATE_WEBHOOK = "https://hook.us2.make.com/adv73b6j8yxufrxkklj6xtdjr9u5xuqs"; 
 const HARDCODED_UPLOAD_WEBHOOK = "https://hook.us2.make.com/oq7wkuxehxjfkngam1rhc9rdltqr3v6s"; 
 
+// ✅ Credentials (Hardcoded for stability)
 const HARDCODED_AIRTABLE_BASE_ID = "app3QrZgktGpCp21l"; 
 const HARDCODED_AIRTABLE_PAT = "pateL0HJlHko5bI1x.53da74b4f542f8ac101af18d4fa4ba87666faebb4835b2c967bc9492c2d95588";     
+
+// --- DATA CONSTANTS ---
 
 const GLOBAL_SETUP_FEE = 40.00;
 const CONTOUR_SETUP_FEE = 25.00;
@@ -91,7 +95,6 @@ const getDaysSince = (dateString) => {
 
 const getDueDateStatus = (dateInput) => {
   if (!dateInput) return null;
-  
   // 🟢 Handle nested arrays from lookups (e.g. [['2023-01-01']])
   let rawDate = dateInput;
   while (Array.isArray(rawDate)) {
@@ -99,12 +102,26 @@ const getDueDateStatus = (dateInput) => {
       rawDate = rawDate[0];
   }
 
-  const due = new Date(rawDate);
+  if (!rawDate) return null;
+
+  // 🟢 Timezone Fix: If YYYY-MM-DD, treat as noon local time to avoid shifts
+  let due;
+  if (typeof rawDate === 'string' && rawDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      due = new Date(rawDate + 'T12:00:00');
+  } else {
+      due = new Date(rawDate);
+  }
+
   if (isNaN(due.getTime())) return null;
 
   const today = new Date();
   today.setHours(0,0,0,0);
-  const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+  
+  // Compare timestamps to ignore time of day differences roughly
+  const dueTime = due.getTime();
+  const todayTime = today.getTime();
+  
+  const diffDays = Math.ceil((dueTime - todayTime) / (1000 * 60 * 60 * 24));
   
   if (diffDays < 0) return { color: 'bg-red-100 text-red-700 border-red-200', label: 'Overdue', icon: AlertCircle };
   if (diffDays === 0) return { color: 'bg-amber-100 text-amber-700 border-amber-200', label: 'Due Today', icon: Clock };
@@ -140,12 +157,17 @@ const getValue = (record, keys, defaultVal = null) => {
 
 // Helper Component for the Ticket UI
 const ProductionTicketCard = ({ data }) => {
-    // Safe date formatting
+    // Safe date formatting with extra checks for arrays in due date
     let safeDate = null;
     if (data.dueDate) {
         let d = data.dueDate;
         while(Array.isArray(d)) d = d[0];
-        safeDate = new Date(d);
+        
+        if (typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            safeDate = new Date(d + 'T12:00:00'); // Noon fix
+        } else {
+            safeDate = new Date(d);
+        }
     }
     const formattedDate = safeDate && !isNaN(safeDate.getTime()) ? safeDate.toLocaleDateString() : "N/A";
 
@@ -425,14 +447,17 @@ export default function App() {
     const itemSqFt = (width * height) / 144;
     const totalSqFt = itemSqFt * qty;
     let tierRate = 0;
-    for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } }
+    if (matData.tiers) {
+        for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } }
+    }
+    
     let basePrintCost = totalSqFt * tierRate;
     if (inputs.sides === '2') basePrintCost *= DOUBLE_SIDED_MULTIPLIER;
     
     const costs = { print: basePrintCost, setup: GLOBAL_SETUP_FEE, lamination: 0, grommets: 0, contour: 0 };
     
     if (inputs.addLamination) {
-      if (matData && matData.can_laminate) { 
+      if (matData.can_laminate) { 
           let lamCost = totalSqFt * FINISHING_RATES.lamination; 
           if (lamCost < FINISHING_RATES.lamination_min) lamCost = FINISHING_RATES.lamination_min; 
           costs.lamination = lamCost; 
@@ -446,7 +471,7 @@ export default function App() {
     const unitPrice = totalSellPrice / qty;
     let bestSheet = null;
     
-    if (matData && matData.sheets) {
+    if (matData.sheets) {
       let bestCost = Infinity;
       matData.sheets.forEach(sheet => {
         const sw = sheet.w, sh = sheet.h;
@@ -612,7 +637,7 @@ export default function App() {
                                 {dueStatus && <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold flex items-center gap-1 border ${dueStatus.color}`}><dueStatus.icon size={10} /> {dueStatus.label}</span>}
                             </div>
                             <h4 className="font-bold text-slate-800 text-sm mb-1 leading-tight">{job.fields.Project_Name || "Untitled"}</h4>
-                            <p className="text-xs text-slate-500 mb-3 truncate">{getValue(job, ['Client_Name', 'Client Name', 'Customer', 'Company', 'Business Name', 'Client'], "Unknown")}</p>
+                            <p className="text-xs text-slate-500 mb-3 truncate">{getValue(job, ['Client_Name', 'Client Name', 'Customer', 'Company', 'Business Name', 'Client', 'Account', 'Account Name', 'Name', 'Display Name', 'DisplayName'], "Unknown")}</p>
                             <div className="flex items-center justify-between pt-2 border-t border-slate-50 mt-2">
                                 <span className="text-xs font-bold text-slate-600">{formatCurrency(job.fields.Total_Price)}</span>
                                 <div className="flex gap-2">{isArtReady && <div className="text-indigo-500" title="Art File Attached"><FileText size={14} /></div>}{!dueStatus && daysOld < 2 && <div className="text-emerald-500" title="New Job"><Clock size={14} /></div>}</div>
@@ -640,8 +665,7 @@ export default function App() {
                             <button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2"><Printer size={14} /> Print Traveler</button>
                           </div>
                       </div>
-                      {selectedJob.fields.Due_Date && <div className="bg-amber-50 border border-amber-100 rounded p-3 mb-4 flex items-center gap-2 text-amber-800 font-bold text-sm"><Clock size={16} /> Due: {new Date(selectedJob.fields.Due_Date).toLocaleDateString()}</div>}
-
+                      
                       {/* 🟢 TICKET VIEW RENDERER IN MODAL */}
                       {(() => {
                           if (loadingDetails) {
@@ -672,8 +696,8 @@ export default function App() {
                           };
 
                           // 🟢 SMART RESOLVE - Look at JOB record for Client/Due Date
-                          const clientName = getValue(selectedJob, ['Client_Name', 'Client Name', 'Client', 'Customer_Name', 'Customer Name', 'Customer', 'Company', 'Business Name', 'Client'], "Walk-in Customer");
-                          const dueDate = getValue(selectedJob, ['Due_Date', 'Due Date', 'DueDate', 'Deadline', 'Date Due', 'Ship Date', 'Target Date'], null);
+                          const clientName = getValue(selectedJob, ['Client_Name', 'Client Name', 'Client', 'Customer_Name', 'Customer Name', 'Customer', 'Company', 'Business Name', 'Client', 'Account', 'Account Name', 'Name', 'Display Name', 'DisplayName'], "Walk-in Customer");
+                          const dueDate = getValue(selectedJob, ['Due_Date', 'Due Date', 'DueDate', 'Deadline', 'Date Due', 'Ship Date', 'Target Date', 'Delivery Date', 'Date Needed'], null);
                           const jobName = getValue(selectedJob, ['Project_Name', 'Project Name', 'Job Name', 'Name'], "UNTITLED JOB");
 
                           // Normalize Data Object for Ticket Component
@@ -739,163 +763,6 @@ export default function App() {
                 </div>
              </div>
           )}
-        </main>
-      )}
-
-      {(viewMode === 'quote' || viewMode === 'production') && (
-        <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 no-print">
-          <div className="lg:col-span-5 space-y-6">
-            {/* CUSTOMER SEARCH CARD */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-emerald-500">
-               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><User size={18} className="text-emerald-600" /> Customer</h2>
-               {customer.name ? (
-                  <div className="flex items-center justify-between bg-emerald-50 p-3 rounded-lg border border-emerald-100"><div className="flex items-center gap-3"><div className="bg-emerald-200 text-emerald-800 p-2 rounded-full"><Check size={16} /></div><div><p className="font-bold text-emerald-900 text-sm">{customer.name}</p><p className="text-xs text-emerald-600">QBO ID: {customer.id}</p></div></div><button onClick={() => setCustomer({id:'', name:''})} className="text-emerald-400 hover:text-emerald-700"><X size={16} /></button></div>
-               ) : (
-                  <div className="relative">
-                     <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
-                     {/* DROPDOWN RESULTS */}
-                     {customerResults.length > 0 && ( 
-                        <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-60 overflow-y-auto">
-                            {customerResults.map(res => (
-                                <div key={res.id} onClick={() => selectCustomer(res)} className={`p-3 border-b border-slate-50 last:border-0 flex items-center gap-2 ${res.isAction ? 'bg-blue-50 hover:bg-blue-100 cursor-pointer text-blue-800' : ''} ${res.id === 'error-msg' ? 'text-red-500 cursor-default hover:bg-white' : ''} ${res.id === 'no-results' || res.id === 'make-setup' ? 'text-slate-400 cursor-default hover:bg-white' : ''} ${!res.isAction && res.id !== 'error-msg' && res.id !== 'no-results' && res.id !== 'make-setup' ? 'hover:bg-slate-50 cursor-pointer' : ''}`}>
-                                    {res.isAction && (isCreatingCustomer ? <Loader size={16} className="animate-spin" /> : <UserPlus size={16} />)}
-                                    <div><p className={`font-bold text-sm ${res.isAction ? 'text-blue-700' : ''}`}>{res.DisplayName}</p>{(res.id !== 'error-msg' && res.id !== 'no-results' && res.id !== 'make-setup' && !res.isAction) && <p className="text-xs text-slate-400">ID: {res.id}</p>}</div>
-                                </div>
-                            ))}
-                        </div> 
-                     )}
-                  </div>
-               )}
-            </div>
-
-            {/* JOB SPECS */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Settings size={18} className="text-blue-600" /> Job Specs</h2>
-              <div className="space-y-4">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Job / Project Name</label><input type="text" name="jobName" placeholder="e.g. Fall Event Signs" value={inputs.jobName} onChange={handleInputChange} className="w-full rounded-md border-slate-300 shadow-sm border p-2" /></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Due Date</label><input type="date" name="dueDate" value={inputs.dueDate} onChange={handleInputChange} className="w-full rounded-md border-slate-300 shadow-sm border p-2" /></div>
-                <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-slate-700 mb-1">Width (in)</label><input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div><div><label className="block text-sm font-medium text-slate-700 mb-1">Height (in)</label><input type="number" name="height" value={inputs.height} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label><input type="number" name="quantity" value={inputs.quantity} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2" /></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Material</label><select name="material" value={inputs.material} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2">{Object.values(MATERIALS).map(m => (<option key={m.key} value={m.name}>{m.name}</option>))}</select></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Print Sides</label><div className="flex gap-4"><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="1" checked={inputs.sides === '1'} onChange={handleInputChange} /><span>Single Sided</span></label><label className="flex items-center gap-2 p-2 border rounded-md flex-1 cursor-pointer hover:bg-slate-50"><input type="radio" name="sides" value="2" checked={inputs.sides === '2'} onChange={handleInputChange} /><span>Double Sided</span></label></div></div>
-              </div>
-            </div>
-
-            {/* FINISHING */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Scissors size={18} className="text-green-600" /> Finishing</h2>
-              <div className="space-y-4">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Cut Type</label><select name="cutType" value={inputs.cutType} onChange={handleInputChange} className="w-full rounded-md border-slate-300 border p-2"><option value="Rectangular">Rectangular (Free)</option><option value="Contour">Contour / Shape (+$25.00 Setup)</option></select></div>
-                <div className="space-y-3 pt-2 border-t border-slate-100">
-                  <label className="flex items-center justify-between cursor-pointer"><div className="flex items-center gap-2"><input type="checkbox" name="addLamination" checked={inputs.addLamination} onChange={handleInputChange} className="h-4 w-4 text-blue-600 rounded" /><span className="text-sm font-medium text-slate-700">Add Lamination</span></div><span className="text-xs text-slate-500">$2.50/sqft</span></label>
-                  <label className="flex items-center justify-between cursor-pointer"><div className="flex items-center gap-2"><input type="checkbox" name="addGrommets" checked={inputs.addGrommets} onChange={handleInputChange} className="h-4 w-4 text-blue-600 rounded" /><span className="text-sm font-medium text-slate-700">Add Grommets</span></div><span className="text-xs text-slate-500">$0.25/ea</span></label>
-                </div>
-              </div>
-            </div>
-
-            {/* ART FILES */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 border-l-4 border-l-indigo-500">
-               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><UploadCloud size={18} className="text-indigo-600" /> Art Files</h2>
-               <div className="space-y-3">
-                  <div className="border-2 border-dashed border-indigo-100 rounded-lg p-4 text-center hover:bg-indigo-50 transition-colors cursor-pointer relative">
-                     <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} disabled={isUploading} />
-                     {isUploading ? (<div className="flex flex-col items-center justify-center text-indigo-600"><Loader size={24} className="animate-spin mb-2" /><span className="text-sm font-medium">Uploading to Drive...</span></div>) : (<div className="flex flex-col items-center justify-center text-indigo-400"><UploadCloud size={24} className="mb-2" /><span className="text-sm font-medium text-indigo-600">Click to Upload File</span><span className="text-[10px] text-slate-400 mt-1">Max 100MB (Logos, Proofs)</span></div>)}
-                  </div>
-                  <div className="relative"><div className="absolute left-3 top-2.5 text-slate-400"><LinkIcon size={16} /></div><input type="text" name="artFileUrl" placeholder="Paste WeTransfer / Dropbox Link" className="w-full pl-9 rounded-md border-slate-300 text-sm p-2" value={inputs.artFileUrl} onChange={handleInputChange} /></div>
-                  {inputs.artFileUrl && (<div className="bg-indigo-50 text-indigo-700 text-xs p-2 rounded flex items-center gap-2 truncate"><CheckCircle size={14} className="flex-shrink-0" /> <span className="truncate">{inputs.artFileUrl}</span></div>)}
-                  {uploadError && <p className="text-red-500 text-xs mt-1">{uploadError}</p>}
-               </div>
-            </div>
-
-            {/* ADMIN CONFIG */}
-            {(!HARDCODED_SUBMIT_WEBHOOK || !HARDCODED_SEARCH_WEBHOOK || !HARDCODED_UPLOAD_WEBHOOK || !HARDCODED_CREATE_WEBHOOK) && (
-              <div className="bg-slate-100 rounded-xl shadow-inner border border-slate-200 p-6">
-                <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Webhook Settings</h2>
-                <div className="space-y-3">
-                  {!HARDCODED_SUBMIT_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">Submit Order Webhook</label><input type="text" name="webhookUrl" value={config.webhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
-                  {!HARDCODED_SEARCH_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">QBO Search Webhook</label><input type="text" name="searchWebhookUrl" value={config.searchWebhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
-                  {!HARDCODED_CREATE_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">Create Customer Webhook</label><input type="text" name="createWebhookUrl" value={config.createWebhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
-                  {!HARDCODED_UPLOAD_WEBHOOK && <div><label className="block text-[10px] text-slate-500 mb-1">Drive Upload Webhook</label><input type="text" name="uploadWebhookUrl" value={config.uploadWebhookUrl} onChange={handleConfigChange} className="w-full text-xs rounded border-slate-300 p-2 font-mono bg-white" placeholder="https://hook..." /></div>}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="lg:col-span-7 space-y-6">
-            {/* 🟢 ALWAYS RENDER THE CONTAINER */}
-            <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-                {viewMode === 'quote' && (
-                  <>
-                    <div className="bg-blue-600 p-4 text-white flex justify-between items-center">
-                      <h3 className="font-semibold flex items-center gap-2"><DollarSign size={20} /> Customer Quote</h3>
-                      <span className="text-xs bg-blue-700 px-2 py-1 rounded text-blue-100">Valid for 30 days</span>
-                    </div>
-                    <div className="p-6">
-                      <div className="flex justify-between items-end mb-6 border-b border-slate-100 pb-6">
-                        <div>
-                          <p className="text-sm text-slate-500 uppercase tracking-wider font-semibold">Total Project Cost</p>
-                          <h2 className="text-4xl font-bold text-slate-900 mt-1">{formatCurrency(calculationResult?.totalSellPrice || 0)}</h2>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm text-slate-500">Price per unit</p>
-                          <p className="text-xl font-semibold text-slate-700">{formatCurrency(calculationResult?.unitPrice || 0)} <span className="text-sm font-normal text-slate-400">/ea</span></p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 mb-6 text-sm text-slate-600">
-                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Dimensions</span> <span className="font-mono font-bold">{inputs.width}" x {inputs.height}"</span></div>
-                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Material</span> <span className="font-bold">{inputs.material}</span></div>
-                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Quantity</span> <span className="font-bold">{inputs.quantity}</span></div>
-                         <div className="flex justify-between border-b border-slate-50 pb-2"><span>Sides</span> <span className="font-bold">{inputs.sides === '2' ? 'Double' : 'Single'}</span></div>
-                         {inputs.dueDate && <div className="flex justify-between border-b border-slate-50 pb-2 text-amber-600"><span>Due Date</span> <span className="font-bold">{new Date(inputs.dueDate).toLocaleDateString()}</span></div>}
-                      </div>
-                      <div className="mt-8 pt-6 border-t border-slate-100">
-                        <button onClick={handleSubmit} disabled={(!HARDCODED_SUBMIT_WEBHOOK && !config.webhookUrl) || submitStatus === 'sending' || submitStatus === 'success'} className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${submitStatus === 'success' ? 'bg-green-600 text-white' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>
-                          {submitStatus === 'idle' && <><Send size={18} /> Submit Order {customer.name && `for ${customer.name}`}</>}
-                          {submitStatus === 'sending' && <><Loader size={18} className="animate-spin" /> Sending...</>}
-                          {submitStatus === 'success' && <><Check size={18} /> Sent!</>}
-                          {submitStatus === 'error' && "Error - Check Webhook"}
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {viewMode === 'production' && (
-                  <>
-                    <div className="bg-slate-800 p-4 text-white flex justify-between items-center">
-                      <h3 className="font-semibold flex items-center gap-2"><Package size={20} /> Production Ticket Preview</h3>
-                      <span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">INTERNAL USE ONLY</span>
-                    </div>
-                    <div className="p-8 bg-yellow-50/50 h-full">
-                        <div className="border-4 border-slate-900 p-6 rounded-xl bg-white shadow-sm">
-                            <div className="flex justify-between items-start mb-6 border-b-2 border-slate-900 pb-4">
-                                <div><h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight">{inputs.jobName || "UNTITLED JOB"}</h2><p className="text-lg font-bold text-slate-600 mt-1">{customer.name || "Walk-in Customer"}</p></div>
-                                <div className="text-right"><div className="text-sm font-bold text-slate-400 uppercase">Due Date</div><div className="text-xl font-mono font-bold text-red-600">{inputs.dueDate ? new Date(inputs.dueDate).toLocaleDateString() : "N/A"}</div></div>
-                            </div>
-                            <div className="grid grid-cols-12 gap-6 mb-8">
-                                <div className="col-span-8">
-                                    <div className="mb-6"><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Material</label><div className="text-2xl font-bold text-slate-900">{inputs.material}</div><div className="text-sm font-bold text-slate-500">{inputs.sides === '2' ? 'DOUBLE SIDED' : 'SINGLE SIDED'}</div></div>
-                                    <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Width</label><div className="text-4xl font-black text-slate-900 font-mono">{inputs.width}"</div></div><div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Height</label><div className="text-4xl font-black text-slate-900 font-mono">{inputs.height}"</div></div></div>
-                                </div>
-                                <div className="col-span-4 bg-slate-100 rounded-lg p-4 flex flex-col items-center justify-center border-2 border-slate-200 border-dashed"><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Quantity</label><div className="text-6xl font-black text-slate-900">{inputs.quantity}</div></div>
-                            </div>
-                            <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 mb-6">
-                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Finishing & Post-Press</label>
-                                <div className="flex flex-wrap gap-3">
-                                    {inputs.cutType !== 'Rectangular' && <span className="px-3 py-1 bg-pink-100 text-pink-800 font-bold rounded border border-pink-200 flex items-center gap-1"><Scissors size={14} /> CONTOUR CUT</span>}
-                                    {inputs.cutType === 'Rectangular' && <span className="px-3 py-1 bg-slate-200 text-slate-600 font-bold rounded border border-slate-300">RECTANGULAR CUT</span>}
-                                    {inputs.addLamination && <span className="px-3 py-1 bg-blue-100 text-blue-800 font-bold rounded border border-blue-200 flex items-center gap-1"><Layers size={14} /> LAMINATED</span>}
-                                    {inputs.addGrommets && <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold rounded border border-emerald-200 flex items-center gap-1"><CircleIcon /> GROMMETS</span>}
-                                    {!inputs.addLamination && !inputs.addGrommets && inputs.cutType === 'Rectangular' && <span className="text-sm text-slate-400 italic">No extra finishing</span>}
-                                </div>
-                            </div>
-                            {inputs.artFileUrl && (<div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex items-center gap-3"><div className="bg-indigo-100 p-2 rounded"><FileText size={20} className="text-indigo-600" /></div><div className="overflow-hidden"><div className="text-xs font-bold text-indigo-400 uppercase">Art File Linked</div><div className="text-xs text-indigo-700 truncate w-full font-mono">{inputs.artFileUrl}</div></div></div>)}
-                        </div>
-                    </div>
-                  </>
-                )}
-            </div>
-          </div>
         </main>
       )}
     </div>
