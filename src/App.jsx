@@ -89,24 +89,47 @@ const getDaysSince = (dateString) => {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 };
 
+// 🟢 NEW: Safe Date Formatter (Prevents Crashes)
+const safeFormatDate = (dateInput) => {
+    if (!dateInput) return "";
+    let raw = dateInput;
+    // Unwrap array if lookup field
+    while (Array.isArray(raw)) {
+        if (raw.length === 0) return "";
+        raw = raw[0];
+    }
+    
+    try {
+        let date;
+        // Fix YYYY-MM-DD timezone offset
+        if (typeof raw === 'string' && raw.match(/^\d{4}-\d{2}-\d{2}$/)) {
+             date = new Date(raw + 'T12:00:00');
+        } else {
+             date = new Date(raw);
+        }
+        
+        if (isNaN(date.getTime())) return ""; // Invalid date
+        return date.toLocaleDateString();
+    } catch (e) {
+        return "";
+    }
+};
+
 const getDueDateStatus = (dateInput) => {
+  const rawDate = safeFormatDate(dateInput); // reuse safe formatter to get string first? No, need object
   if (!dateInput) return null;
   
-  // 🟢 Handle nested arrays from lookups (e.g. [['2023-01-01']])
-  let rawDate = dateInput;
-  while (Array.isArray(rawDate)) {
-      if (rawDate.length === 0) return null;
-      rawDate = rawDate[0];
+  let raw = dateInput;
+  while (Array.isArray(raw)) {
+      if (raw.length === 0) return null;
+      raw = raw[0];
   }
 
-  if (!rawDate) return null;
-  
-  // Fix Timezone offset for simple date strings
   let due;
-  if (typeof rawDate === 'string' && rawDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-     due = new Date(rawDate + 'T12:00:00');
+  if (typeof raw === 'string' && raw.match(/^\d{4}-\d{2}-\d{2}$/)) {
+     due = new Date(raw + 'T12:00:00');
   } else {
-     due = new Date(rawDate);
+     due = new Date(raw);
   }
 
   if (isNaN(due.getTime())) return null;
@@ -128,7 +151,6 @@ const getValue = (record, keys, defaultVal = null) => {
     for (const key of keys) {
         let val = record.fields[key];
         
-        // Try case-insensitive search if not found directly
         if (val === undefined) {
             const lowerKey = key.toLowerCase();
             const foundKey = Object.keys(record.fields).find(k => k.toLowerCase() === lowerKey);
@@ -136,7 +158,6 @@ const getValue = (record, keys, defaultVal = null) => {
         }
 
         if (val !== undefined && val !== null && val !== "") {
-            // 🟢 CRITICAL: Recursively Flatten Arrays (Handle Lookups)
             while (Array.isArray(val)) {
                 if (val.length === 0) return defaultVal;
                 val = val[0];
@@ -147,25 +168,9 @@ const getValue = (record, keys, defaultVal = null) => {
     return defaultVal;
 };
 
-// Helper function to safely format dates without crashing
-const safeFormatDate = (dateString) => {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    // Valid date check
-    if (date instanceof Date && !isNaN(date)) {
-        // UTC fix for string inputs like "2023-12-25"
-        if (typeof dateString === 'string' && dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
-             return new Date(dateString + 'T12:00:00').toLocaleDateString();
-        }
-        return date.toLocaleDateString();
-    }
-    return "";
-};
-
 // Helper Component for the Ticket UI
 const ProductionTicketCard = ({ data }) => {
-    // Safe date formatting logic handled inside the component to prevent crashes
-    const displayDate = safeFormatDate(data.dueDate) || "N/A";
+    const formattedDate = safeFormatDate(data.dueDate) || "N/A";
 
     return (
         <div className="border-4 border-slate-900 p-6 rounded-xl bg-white shadow-sm text-left">
@@ -176,7 +181,7 @@ const ProductionTicketCard = ({ data }) => {
                 </div>
                 <div className="text-right">
                     <div className="text-sm font-bold text-slate-400 uppercase">Due Date</div>
-                    <div className="text-xl font-mono font-bold text-red-600">{displayDate}</div>
+                    <div className="text-xl font-mono font-bold text-red-600">{formattedDate}</div>
                 </div>
             </div>
 
@@ -669,10 +674,7 @@ export default function App() {
                           
                           // Helper to format date for banner
                           const formatBannerDate = (d) => {
-                              if (!d) return '';
-                              let raw = Array.isArray(d) ? d[0] : d;
-                              let dateObj = typeof raw === 'string' && raw.match(/^\d{4}-\d{2}-\d{2}$/) ? new Date(raw + 'T12:00:00') : new Date(raw);
-                              return isNaN(dateObj.getTime()) ? raw : dateObj.toLocaleDateString();
+                              return safeFormatDate(d);
                           };
 
                           return (
