@@ -446,31 +446,19 @@ export default function App() {
     const itemSqFt = (width * height) / 144;
     const totalSqFt = itemSqFt * qty;
     let tierRate = 0;
-    if (matData.tiers) {
-        for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } }
-    }
-    
+    for (const tier of matData.tiers) { if (totalSqFt <= tier.limit) { tierRate = tier.price; break; } }
     let basePrintCost = totalSqFt * tierRate;
     if (inputs.sides === '2') basePrintCost *= DOUBLE_SIDED_MULTIPLIER;
-    
     const costs = { print: basePrintCost, setup: GLOBAL_SETUP_FEE, lamination: 0, grommets: 0, contour: 0 };
-    
     if (inputs.addLamination) {
-      if (matData.can_laminate) { 
-          let lamCost = totalSqFt * FINISHING_RATES.lamination; 
-          if (lamCost < FINISHING_RATES.lamination_min) lamCost = FINISHING_RATES.lamination_min; 
-          costs.lamination = lamCost; 
-      }
+      if (!matData.can_laminate) {} else { let lamCost = totalSqFt * FINISHING_RATES.lamination; if (lamCost < FINISHING_RATES.lamination_min) lamCost = FINISHING_RATES.lamination_min; costs.lamination = lamCost; }
     }
-    
     if (inputs.addGrommets) costs.grommets = qty * inputs.grommetsPerSign * FINISHING_RATES.grommets;
     if (inputs.cutType === 'Contour') costs.contour = CONTOUR_SETUP_FEE;
-    
     const totalSellPrice = Object.values(costs).reduce((a, b) => a + b, 0);
     const unitPrice = totalSellPrice / qty;
     let bestSheet = null;
-    
-    if (matData && matData.sheets) {
+    if (matData.sheets) {
       let bestCost = Infinity;
       matData.sheets.forEach(sheet => {
         const sw = sheet.w, sh = sheet.h;
@@ -664,75 +652,98 @@ export default function App() {
                             <button onClick={() => window.print()} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded flex items-center gap-2"><Printer size={14} /> Print Traveler</button>
                           </div>
                       </div>
-                      {selectedJob.fields.Due_Date && <div className="bg-amber-50 border border-amber-100 rounded p-3 mb-4 flex items-center gap-2 text-amber-800 font-bold text-sm"><Clock size={16} /> Due: {new Date(selectedJob.fields.Due_Date).toLocaleDateString()}</div>}
-
-                      {/* 🟢 TICKET VIEW RENDERER IN MODAL */}
+                      
+                      {/* 🟢 RESOLVE JOB-LEVEL DATA ONCE FOR BOTH BANNER AND TICKET */}
                       {(() => {
-                          if (loadingDetails) {
-                              return <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching specs...</p></div>;
-                          }
-
-                          // Data Preparation
-                          const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
-                          let jsonSpecs = {};
-                          try {
-                              const potentialKeys = ['Production_Specs_JSON', 'Item_Details_JSON', 'Details_JSON', 'Specs_JSON', 'Item_Details', 'Item Details', 'JSON'];
-                              let jsonField = null;
-                              for (const key of potentialKeys) { if (item.fields[key]) { jsonField = item.fields[key]; break; } }
-                              if (jsonField) {
-                                  const parsed = typeof jsonField === 'object' ? jsonField : JSON.parse(jsonField);
-                                  jsonSpecs = parsed.item_details || parsed; 
-                              }
-                          } catch(e) { console.warn("JSON Parse Error", e); }
-
-                          const resolve = (keys, defaultVal) => {
-                              const fieldVal = getValue(item, keys);
-                              if (fieldVal !== undefined && fieldVal !== null && fieldVal !== "") return fieldVal;
-                              for (const k of keys) {
-                                  if (jsonSpecs[k] !== undefined) return jsonSpecs[k];
-                                  if (jsonSpecs[k.toLowerCase()] !== undefined) return jsonSpecs[k.toLowerCase()];
-                              }
-                              return defaultVal;
-                          };
-
-                          // 🟢 SMART RESOLVE - Look at JOB record for Client/Due Date
-                          const clientName = getValue(selectedJob, ['Client_Name', 'Client Name', 'Client', 'Customer_Name', 'Customer Name', 'Customer', 'Company', 'Business Name', 'Client', 'Account', 'Account Name', 'Name', 'Display Name', 'DisplayName'], "Walk-in Customer");
-                          const dueDate = getValue(selectedJob, ['Due_Date', 'Due Date', 'DueDate', 'Deadline', 'Date Due', 'Ship Date', 'Target Date', 'Delivery Date', 'Date Needed', 'Order Date', 'Order_Date'], null);
-                          const jobName = getValue(selectedJob, ['Project_Name', 'Project Name', 'Job Name', 'Name'], "UNTITLED JOB");
-
-                          // Normalize Data Object for Ticket Component
-                          const ticketData = {
-                              jobName: jobName,
-                              clientName: clientName,
-                              dueDate: dueDate,
-                              material: resolve(['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A'),
-                              width: resolve(['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0'),
-                              height: resolve(['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0'),
-                              quantity: resolve(['Quantity', 'Qty', 'quantity', 'Count'], '0'),
-                              sides: resolve(['Sides', 'Print Sides', 'sides'], '1'),
-                              cutType: resolve(['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None'),
-                              lamination: resolve(['Lamination', 'lamination', 'Laminate'], false),
-                              grommets: resolve(['Grommets', 'grommets', 'Grommet'], false),
-                              artFileUrl: resolve(['Art_File_Link', 'Art File', 'File'], '')
+                          // Resolve Job Level Fields
+                          const resolvedDueDate = getValue(selectedJob, ['Due_Date', 'Due Date', 'DueDate', 'Deadline', 'Date Due', 'Ship Date', 'Target Date', 'Delivery Date', 'Date Needed', 'Order Date', 'Order_Date'], null);
+                          
+                          // Helper to format date for banner
+                          const formatBannerDate = (d) => {
+                              if (!d) return '';
+                              // Handle array (lookup field)
+                              let raw = Array.isArray(d) ? d[0] : d;
+                              // Handle YYYY-MM-DD timezone fix
+                              let dateObj = typeof raw === 'string' && raw.match(/^\d{4}-\d{2}-\d{2}$/) ? new Date(raw + 'T12:00:00') : new Date(raw);
+                              return isNaN(dateObj.getTime()) ? raw : dateObj.toLocaleDateString();
                           };
 
                           return (
-                              <div className="p-4 bg-yellow-50/50 rounded-xl">
-                                  <ProductionTicketCard data={ticketData} />
-                                  {jobLineItems.length > 1 && (
-                                      <div className="mt-8 border-t pt-6">
-                                          <h4 className="font-bold text-slate-500 text-sm uppercase mb-4">Additional Items in this Job</h4>
-                                          <div className="space-y-2">
-                                              {jobLineItems.slice(1).map((subItem, idx) => (
-                                                  <div key={subItem.id} className="bg-white p-3 rounded border text-sm flex justify-between">
-                                                      <span>{getValue(subItem, ['Material_Type', 'Material'])} ({getValue(subItem, ['Width_In', 'Width'])}" x {getValue(subItem, ['Height_In', 'Height'])}")</span>
-                                                      <span className="font-bold">Qty: {getValue(subItem, ['Quantity', 'Qty'])}</span>
-                                                  </div>
-                                              ))}
-                                          </div>
+                              <>
+                                  {/* 🟢 AMBER DUE DATE BANNER (Now uses smart resolver) */}
+                                  {resolvedDueDate && (
+                                      <div className="bg-amber-50 border border-amber-100 rounded p-3 mb-4 flex items-center gap-2 text-amber-800 font-bold text-sm">
+                                          <Clock size={16} /> Due: {formatBannerDate(resolvedDueDate)}
                                       </div>
                                   )}
-                              </div>
+
+                                  {/* 🟢 TICKET VIEW RENDERER */}
+                                  {(() => {
+                                      if (loadingDetails) {
+                                          return <div className="py-12 flex flex-col items-center justify-center text-slate-400"><Loader size={32} className="animate-spin mb-2" /><p>Fetching specs...</p></div>;
+                                      }
+
+                                      // Data Preparation
+                                      const item = jobLineItems.length > 0 ? jobLineItems[0] : selectedJob;
+                                      let jsonSpecs = {};
+                                      try {
+                                          const potentialKeys = ['Production_Specs_JSON', 'Item_Details_JSON', 'Details_JSON', 'Specs_JSON', 'Item_Details', 'Item Details', 'JSON'];
+                                          let jsonField = null;
+                                          for (const key of potentialKeys) { if (item.fields[key]) { jsonField = item.fields[key]; break; } }
+                                          if (jsonField) {
+                                              const parsed = typeof jsonField === 'object' ? jsonField : JSON.parse(jsonField);
+                                              jsonSpecs = parsed.item_details || parsed; 
+                                          }
+                                      } catch(e) { console.warn("JSON Parse Error", e); }
+
+                                      const resolve = (keys, defaultVal) => {
+                                          const fieldVal = getValue(item, keys);
+                                          if (fieldVal !== undefined && fieldVal !== null && fieldVal !== "") return fieldVal;
+                                          for (const k of keys) {
+                                              if (jsonSpecs[k] !== undefined) return jsonSpecs[k];
+                                              if (jsonSpecs[k.toLowerCase()] !== undefined) return jsonSpecs[k.toLowerCase()];
+                                          }
+                                          return defaultVal;
+                                      };
+
+                                      const clientName = getValue(selectedJob, ['Client_Name', 'Client Name', 'Client', 'Customer_Name', 'Customer Name', 'Customer', 'Company', 'Business Name', 'Client', 'Account', 'Account Name', 'Name', 'Display Name', 'DisplayName'], "Walk-in Customer");
+                                      const jobName = getValue(selectedJob, ['Project_Name', 'Project Name', 'Job Name', 'Name'], "UNTITLED JOB");
+
+                                      const ticketData = {
+                                          jobName: jobName,
+                                          clientName: clientName,
+                                          dueDate: resolvedDueDate, // Use the variable we resolved above
+                                          material: resolve(['Material_Type', 'Material', 'material', 'Material Name', 'Substrate', 'Item'], 'N/A'),
+                                          width: resolve(['Width_In', 'Width', 'width', 'Width (in)', 'W'], '0'),
+                                          height: resolve(['Height_In', 'Height', 'height', 'Height (in)', 'H'], '0'),
+                                          quantity: resolve(['Quantity', 'Qty', 'quantity', 'Count'], '0'),
+                                          sides: resolve(['Sides', 'Print Sides', 'sides'], '1'),
+                                          cutType: resolve(['Cut_Type', 'Finishing', 'Cut Type', 'Cut'], 'None'),
+                                          lamination: resolve(['Lamination', 'lamination', 'Laminate'], false),
+                                          grommets: resolve(['Grommets', 'grommets', 'Grommet'], false),
+                                          artFileUrl: resolve(['Art_File_Link', 'Art File', 'File'], '')
+                                      };
+
+                                      return (
+                                          <div className="p-4 bg-yellow-50/50 rounded-xl">
+                                              <ProductionTicketCard data={ticketData} />
+                                              {jobLineItems.length > 1 && (
+                                                  <div className="mt-8 border-t pt-6">
+                                                      <h4 className="font-bold text-slate-500 text-sm uppercase mb-4">Additional Items in this Job</h4>
+                                                      <div className="space-y-2">
+                                                          {jobLineItems.slice(1).map((subItem, idx) => (
+                                                              <div key={subItem.id} className="bg-white p-3 rounded border text-sm flex justify-between">
+                                                                  <span>{getValue(subItem, ['Material_Type', 'Material'])} ({getValue(subItem, ['Width_In', 'Width'])}" x {getValue(subItem, ['Height_In', 'Height'])}")</span>
+                                                                  <span className="font-bold">Qty: {getValue(subItem, ['Quantity', 'Qty'])}</span>
+                                                              </div>
+                                                          ))}
+                                                      </div>
+                                                  </div>
+                                              )}
+                                          </div>
+                                      );
+                                  })()}
+                              </>
                           );
                       })()}
 
