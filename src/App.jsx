@@ -127,7 +127,6 @@ const getDueDateStatus = (dateInput) => {
   return { color: 'bg-slate-100 text-slate-600 border-slate-200', label: due.toLocaleDateString(undefined, {month:'short', day:'numeric'}), icon: Calendar };
 };
 
-// 🟢 SMART FIELD RESOLVER
 const getValue = (record, keys, defaultVal = null) => {
     if (!record || !record.fields) return defaultVal;
     for (const key of keys) {
@@ -145,7 +144,7 @@ const getValue = (record, keys, defaultVal = null) => {
     return defaultVal;
 };
 
-// 🟢 Helper to unwrap status for Dashboard Columns
+// 🟢 Helper to unwrap status for Dashboard Columns (Prevent crashes on Lookup fields)
 const getSafeStatus = (statusValue) => {
     if (!statusValue) return '';
     if (Array.isArray(statusValue)) return statusValue[0];
@@ -319,7 +318,6 @@ export default function App() {
     } } catch (e) { }
   }, [config, digitalProducts]);
 
-  // 🟢 AUTO-FETCH DASHBOARD ON MOUNT IF VIEW IS DASHBOARD
   useEffect(() => {
       if (viewMode === 'dashboard') {
           fetchJobs();
@@ -337,10 +335,6 @@ export default function App() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // ... (API Logic - Search, Create, Upload, Drag, Delete - Identical to previous, assumed valid) ...
-  // For brevity in this specific response, ensuring they are defined here or imported if this were modules.
-  // Since it's a single file, I will re-paste the critical fetch logic that was failing.
-
   const fetchJobs = async () => {
     setFetchError(null);
     const baseId = config.airtableBaseId; const pat = config.airtablePat;
@@ -352,11 +346,11 @@ export default function App() {
       const response = await fetch(`https://api.airtable.com/v0/${baseId}/${encodedTable}`, { headers: { Authorization: `Bearer ${pat}` } });
       if (!response.ok) throw new Error(`Airtable Error: ${response.statusText} (Check Table Name)`);
       const data = await response.json();
-      setJobs(data.records);
-    } catch (error) { setFetchError(error.message); } finally { setLoadingJobs(false); }
+      // 🟢 CRASH FIX: Ensure records is always an array
+      setJobs(data.records || []);
+    } catch (error) { setFetchError(error.message); setJobs([]); } finally { setLoadingJobs(false); }
   };
   
-  // 🟢 RE-PASTING CRITICAL FUNCTIONS FOR CONTEXT
     const searchCustomers = async () => {
     const targetUrl = config.searchWebhookUrl;
     if (!targetUrl) { alert("Please add your Customer Search Webhook URL."); return; }
