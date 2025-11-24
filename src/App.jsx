@@ -127,6 +127,7 @@ const getDueDateStatus = (dateInput) => {
   return { color: 'bg-slate-100 text-slate-600 border-slate-200', label: due.toLocaleDateString(undefined, {month:'short', day:'numeric'}), icon: Calendar };
 };
 
+// 🟢 SMART FIELD RESOLVER
 const getValue = (record, keys, defaultVal = null) => {
     if (!record || !record.fields) return defaultVal;
     for (const key of keys) {
@@ -142,6 +143,13 @@ const getValue = (record, keys, defaultVal = null) => {
         }
     }
     return defaultVal;
+};
+
+// 🟢 Helper to unwrap status for Dashboard Columns
+const getSafeStatus = (statusValue) => {
+    if (!statusValue) return '';
+    if (Array.isArray(statusValue)) return statusValue[0];
+    return statusValue;
 };
 
 const ProductionTicketCard = ({ data }) => {
@@ -311,6 +319,13 @@ export default function App() {
     } } catch (e) { }
   }, [config, digitalProducts]);
 
+  // 🟢 AUTO-FETCH DASHBOARD ON MOUNT IF VIEW IS DASHBOARD
+  useEffect(() => {
+      if (viewMode === 'dashboard') {
+          fetchJobs();
+      }
+  }, [viewMode]);
+
   const [jobs, setJobs] = useState([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('idle');
@@ -322,7 +337,27 @@ export default function App() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const searchCustomers = async () => {
+  // ... (API Logic - Search, Create, Upload, Drag, Delete - Identical to previous, assumed valid) ...
+  // For brevity in this specific response, ensuring they are defined here or imported if this were modules.
+  // Since it's a single file, I will re-paste the critical fetch logic that was failing.
+
+  const fetchJobs = async () => {
+    setFetchError(null);
+    const baseId = config.airtableBaseId; const pat = config.airtablePat;
+    if (!baseId || !pat) return;
+    const tableName = config.airtableTableName || 'Jobs';
+    setLoadingJobs(true);
+    try {
+      const encodedTable = encodeURIComponent(tableName);
+      const response = await fetch(`https://api.airtable.com/v0/${baseId}/${encodedTable}`, { headers: { Authorization: `Bearer ${pat}` } });
+      if (!response.ok) throw new Error(`Airtable Error: ${response.statusText} (Check Table Name)`);
+      const data = await response.json();
+      setJobs(data.records);
+    } catch (error) { setFetchError(error.message); } finally { setLoadingJobs(false); }
+  };
+  
+  // 🟢 RE-PASTING CRITICAL FUNCTIONS FOR CONTEXT
+    const searchCustomers = async () => {
     const targetUrl = config.searchWebhookUrl;
     if (!targetUrl) { alert("Please add your Customer Search Webhook URL."); return; }
     if (!customerQuery) return;
@@ -406,8 +441,7 @@ export default function App() {
         const base64Data = reader.result.split(',')[1]; 
         const lastDot = file.name.lastIndexOf('.');
         const ext = lastDot === -1 ? '' : file.name.substring(lastDot);
-        const originalName = lastDot === -1 ? file.name : file.name.substring(0, lastDot);
-        const cleanOriginal = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const cleanOriginal = file.name.substring(0, lastDot).replace(/[^a-zA-Z0-9._-]/g, '_');
         const cleanJob = inputs.jobName ? inputs.jobName.replace(/[^a-zA-Z0-9._-]/g, '_') : 'Quote';
         const quoteRef = Date.now().toString().slice(-6); 
         const finalName = `${cleanJob}_${cleanOriginal}_Ref${quoteRef}${ext}`;
@@ -421,7 +455,7 @@ export default function App() {
       };
     } catch (error) { setUploadError("Upload failed."); setIsUploading(false); }
   };
-
+  
   const handleDragStart = (e, jobId) => { setDraggingJobId(jobId); e.dataTransfer.effectAllowed = "move"; };
   const handleDragOver = (e, jobId = null) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (jobId && jobId !== draggingJobId) setDragOverJobId(jobId); };
   const handleDrop = async (e, targetStatus, targetJobId = null) => {
@@ -464,7 +498,6 @@ export default function App() {
     const height = parseFloat(inputs.height) || 0;
     const qty = parseInt(inputs.quantity) || 0;
     
-    // 🟢 SAFE RETURN: Always return a valid object even if inputs are missing
     const emptyResult = { specs: { totalSqFt: 0 }, costs: { print: 0, setup: 0 }, totalSellPrice: 0, unitPrice: 0, production: null, profitability: { grossMargin: 0 } };
 
     if (quoteType === 'large_format') {
@@ -532,21 +565,6 @@ export default function App() {
     }
   }, [inputs, quoteType, digitalProducts]);
 
-  const fetchJobs = async () => {
-    setFetchError(null);
-    const baseId = config.airtableBaseId; const pat = config.airtablePat;
-    if (!baseId || !pat) return;
-    const tableName = config.airtableTableName || 'Jobs';
-    setLoadingJobs(true);
-    try {
-      const encodedTable = encodeURIComponent(tableName);
-      const response = await fetch(`https://api.airtable.com/v0/${baseId}/${encodedTable}`, { headers: { Authorization: `Bearer ${pat}` } });
-      if (!response.ok) throw new Error(`Airtable Error: ${response.statusText}`);
-      const data = await response.json();
-      setJobs(data.records);
-    } catch (error) { setFetchError(error.message); } finally { setLoadingJobs(false); }
-  };
-
   const fetchLineItems = async (job) => {
     setLoadingDetails(true); setJobLineItems([]);
     const tableName = config.airtableLineItemsName || 'Line Items'; 
@@ -603,7 +621,6 @@ export default function App() {
     const payload = {
       job_name: inputs.jobName || "Untitled Job",
       order_date: new Date().toISOString().split('T')[0],
-      // 🟢 SAFE DATE PAYLOAD: Send null if empty string
       due_date: inputs.dueDate || null,
       total_price: calculationResult.totalSellPrice,
       customer_name: customer.name || "Walk-in", 
@@ -707,9 +724,9 @@ export default function App() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 overflow-x-auto pb-8">
             {DASHBOARD_COLUMNS.map(col => (
               <div key={col.id} className={`rounded-xl p-4 min-w-[280px] transition-colors border-t-4 ${col.border} ${col.bg}`} onDragOver={(e) => handleDragOver(e)} onDrop={(e) => handleDrop(e, col.id)}>
-                 <h3 className={`font-bold mb-4 flex items-center gap-2 ${col.text} text-lg`}>{col.label} <span className="bg-white/50 text-xs px-2 py-1 rounded-full">{jobs.filter(j => col.match.includes(j.fields.Status)).length}</span></h3>
+                 <h3 className={`font-bold mb-4 flex items-center gap-2 ${col.text} text-lg`}>{col.label} <span className="bg-white/50 text-xs px-2 py-1 rounded-full">{jobs.filter(j => col.match.includes(getSafeStatus(j.fields.Status))).length}</span></h3>
                  <div className="space-y-3 min-h-[200px]">
-                   {jobs.filter(j => col.match.includes(j.fields.Status)).map(job => {
+                   {jobs.filter(j => col.match.includes(getSafeStatus(j.fields.Status))).map(job => {
                       const daysOld = getDaysSince(job.createdTime);
                       const isArtReady = job.fields.Art_File_Link || false;
                       const dueStatus = getDueDateStatus(getValue(job, ['Due_Date', 'Due Date', 'DueDate', 'Deadline', 'Date Due', 'Ship Date', 'Target Date', 'Delivery Date', 'Date Needed', 'Order Date', 'Order_Date']));
@@ -902,6 +919,7 @@ export default function App() {
                ) : (
                   <div className="relative">
                      <div className="flex gap-2"><input type="text" placeholder="Search QBO (e.g. Acme)" className="flex-1 rounded-md border-slate-300 text-sm p-2" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchCustomers()} /><button onClick={searchCustomers} className="bg-slate-800 text-white p-2 rounded-md hover:bg-slate-700">{isSearchingCustomer ? <Loader size={18} className="animate-spin" /> : <Search size={18} />}</button></div>
+                     {/* DROPDOWN RESULTS */}
                      {customerResults.length > 0 && ( 
                         <div className="absolute top-full left-0 w-full bg-white shadow-xl border border-slate-200 rounded-md mt-1 z-10 max-h-60 overflow-y-auto">
                             {customerResults.map(res => (
