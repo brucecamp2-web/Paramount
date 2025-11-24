@@ -117,7 +117,6 @@ const getDueDateStatus = (dateInput) => {
 
   const today = new Date();
   today.setHours(0,0,0,0);
-  // Using getTime to avoid TZ math issues at midnight
   const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   
   if (diffDays < 0) return { color: 'bg-red-100 text-red-700 border-red-200', label: 'Overdue', icon: AlertCircle };
@@ -142,7 +141,6 @@ const getValue = (record, keys, defaultVal = null) => {
 
         if (val !== undefined && val !== null && val !== "") {
             // 🟢 CRITICAL: Recursively Flatten Arrays (Handle Lookups)
-            // This unwraps ["Customer Name"] into "Customer Name"
             while (Array.isArray(val)) {
                 if (val.length === 0) return defaultVal;
                 val = val[0];
